@@ -2,6 +2,8 @@ const LIGHT_GRAY = 255;
 const GRAY = 192;
 const DARK_GRAY = 128;
 
+const MILLI = 1 / 1000;
+
 function drawBorder(backbuffer, stride, w, bw, x, y, colorTopLeft, colorCenter, colorBottomRight) {
     let row = y * stride + x * 4;
     const fullW = w + 2*bw;
@@ -151,6 +153,8 @@ class Game {
     }
 
     updateAndRender() {
+        const nowSeconds = Date.now() * MILLI;
+        const elapsedSeconds = nowSeconds - this.startSeconds;
         this.canvas.width = this.window.innerWidth;
         this.canvas.height = this.window.innerHeight;
         const stride = this.canvas.width*4;
@@ -158,9 +162,9 @@ class Game {
         let at = 0;
         for (let y = 0; y < this.canvas.height; ++y) {
             for (let x = 0; x < this.canvas.width; ++x) {
-                backbuffer.data[at + 0] = Math.round(255 * (x / this.canvas.width));
-                backbuffer.data[at + 1] = Math.round(255 * (1 - y / this.canvas.height));
-                backbuffer.data[at + 2] = Math.round(255 * (1 - x / this.canvas.width));
+                backbuffer.data[at + 0] = Math.round(127.5 * (1 - Math.cos(Math.PI * (x + elapsedSeconds * 200) / this.canvas.width)));
+                backbuffer.data[at + 1] = Math.round(127.5 * (1 - Math.cos(Math.PI * (1 - (y + elapsedSeconds * 300) / this.canvas.height))));
+                backbuffer.data[at + 2] = Math.round(127.5 * (1 - Math.cos(Math.PI * (1 - (x + elapsedSeconds * 500) / this.canvas.width))));
                 backbuffer.data[at + 3] = 255;
                 at += 4;
             }
@@ -189,9 +193,11 @@ class Game {
 
 function main() {
     const game = new Game();
+
     game.canvas = document.getElementById('canvas');
     game.ctx = game.canvas.getContext('2d');
     game.window = window;
+    game.startSeconds = Date.now() * MILLI;
     game.requestNextFrame();
 }
 
