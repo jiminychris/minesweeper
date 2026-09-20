@@ -17,7 +17,7 @@ class Game {
         this.canvas.style.width = `${this.window.innerWidth}px`;
         this.canvas.style.height = `${this.window.innerHeight}px`;
 
-        this.instance.exports.GameUpdateAndRender(elapsedSeconds, this.canvas.width, this.canvas.height, this.heap.byteOffset);
+        this.instance.exports.GameUpdateAndRender(elapsedSeconds, this.canvas.width, this.canvas.height, this.heap.byteOffset, this.assetsMemory.byteOffset);
 
         this.ctx.fillStyle = 'magenta';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -51,7 +51,16 @@ async function main() {
         },
     });
     game.instance = instance;
-    game.heap = new Uint8Array(game.memory.buffer, game.instance.exports.__heap_base, heapSize);
+
+    const assetsResponse = await fetch("assets.msp");
+    const assetsArrayBuffer = await assetsResponse.arrayBuffer();
+    let allocated = game.instance.exports.__heap_base;
+    game.assetsMemory = new Uint8Array(game.memory.buffer, allocated, assetsArrayBuffer.byteLength);
+    allocated += game.assetsMemory.length;
+    game.heap = new Uint8Array(game.memory.buffer, allocated, heapSize - allocated);
+    allocated += game.heap.length;
+
+    game.assetsMemory.set(new Uint8Array(assetsArrayBuffer));
 
     game.requestNextFrame();
 }
