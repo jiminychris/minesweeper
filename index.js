@@ -2,11 +2,31 @@ const MILLI = 1 / 1000;
 
 class Game {
     constructor() {
+        this.mouseHalfTransitionCount = 0;
+        this.mouseEndedDown = false;
         this.updateAndRender = this.updateAndRender.bind(this);
+        this.onMouseMove = this.onMouseMove.bind(this);
+        this.onMouseUp = this.onMouseUp.bind(this);
+        this.onMouseDown = this.onMouseDown.bind(this);
     }
 
     requestNextFrame() {
         this.window.requestAnimationFrame(this.updateAndRender);
+    }
+
+    onMouseMove(e) {
+        this.mouseX = e.offsetX;
+        this.mouseY = e.offsetY;
+    }
+
+    onMouseUp(e) {
+        this.mouseHalfTransitionCount++;
+        this.mouseEndedDown = false;
+    }
+
+    onMouseDown(e) {
+        this.mouseHalfTransitionCount++;
+        this.mouseEndedDown = true;
     }
 
     updateAndRender() {
@@ -17,7 +37,8 @@ class Game {
         this.canvas.style.width = `${this.window.innerWidth}px`;
         this.canvas.style.height = `${this.window.innerHeight}px`;
 
-        this.instance.exports.GameUpdateAndRender(elapsedSeconds, this.canvas.width, this.canvas.height, this.heap.byteOffset, this.assetsMemory.byteOffset);
+        this.instance.exports.GameUpdateAndRender(elapsedSeconds, this.canvas.width, this.canvas.height, this.heap.byteOffset, this.mouseEndedDown, this.mouseHalfTransitionCount, this.mouseX, this.mouseY, this.assetsMemory.byteOffset, this.gameMemory.length, this.gameMemory.byteOffset);
+        this.mouseHalfTransitionCount = 0;
 
         this.ctx.fillStyle = 'magenta';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -57,10 +78,16 @@ async function main() {
     let allocated = game.instance.exports.__heap_base;
     game.assetsMemory = new Uint8Array(game.memory.buffer, allocated, assetsArrayBuffer.byteLength);
     allocated += game.assetsMemory.length;
+    game.gameMemory = new Uint8Array(game.memory.buffer, allocated, 2*1024*1024);
+    allocated += game.gameMemory.length;
     game.heap = new Uint8Array(game.memory.buffer, allocated, heapSize - allocated);
     allocated += game.heap.length;
 
     game.assetsMemory.set(new Uint8Array(assetsArrayBuffer));
+
+    game.canvas.addEventListener('mousemove', game.onMouseMove);
+    game.canvas.addEventListener('mouseup', game.onMouseUp);
+    game.canvas.addEventListener('mousedown', game.onMouseDown);
 
     game.requestNextFrame();
 }
