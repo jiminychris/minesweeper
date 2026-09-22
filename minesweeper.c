@@ -262,6 +262,13 @@ struct game_state
 void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, uint8_t *BackbufferMemory, int32_t MouseEndedDown, int32_t MouseHalfTransitionCount, int32_t MouseX, int32_t MouseY, uint8_t *AssetsMemory, size_t GameMemorySize, uint8_t *GameMemory)
 {
     struct game_state *GameState = (struct game_state*)GameMemory;
+
+    struct backbuffer _Backbuffer;
+    _Backbuffer.Dimensions.Width = Width;
+    _Backbuffer.Dimensions.Height = Height;
+    _Backbuffer.Memory = BackbufferMemory;
+    struct backbuffer *Backbuffer = &_Backbuffer;
+
     struct v2i Beginner = {9,9};
     struct v2i Intermediate = {16,16};
     struct v2i Expert = {30,16};
@@ -307,37 +314,48 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
         VMultiplier = (float)Header->Width / (float)Width / (float)Header->Height;
         VOffset = 0.5f * (1 - VMultiplier * Height);
     }
-    
-    
-    uint8_t *DestRow = BackbufferMemory;
-    uint8_t *Background = AssetsMemory + sizeof(*Header);
-    for (int32_t y = 0; y < Height; ++y) {
-        float V = ((float)y + 0.5f) * VMultiplier + VOffset;
-        uint8_t *Dest = DestRow;
-        for (int32_t x = 0; x < Width; ++x) {
-            float U = ((float)x + 0.5f) * UMultiplier + UOffset;
-            uint32_t SourceX = (uint32_t)(U * Header->Width);
-            uint32_t SourceY = (uint32_t)(V * Header->Height);
-            uint8_t *Source = Background + (SourceY * Header->Width + SourceX) * 3;
+
+    struct rect2i ScreenRectangle = {0, 0, Width, Height};
+    struct v4 BackgroundColor = {0, 0.5f, 0.5f, 1.0f};
+
+    if (Header->Width && Header->Height)
+    {
+        uint8_t *DestRow = BackbufferMemory;
+        uint8_t *Background = AssetsMemory + sizeof(*Header);
+        for (int32_t y = 0; y < Height; ++y) {
+            float V = ((float)y + 0.5f) * VMultiplier + VOffset;
+            uint8_t *Dest = DestRow;
+            for (int32_t x = 0; x < Width; ++x) {
+                float U = ((float)x + 0.5f) * UMultiplier + UOffset;
+                uint32_t SourceX = (uint32_t)(U * Header->Width);
+                uint32_t SourceY = (uint32_t)(V * Header->Height);
+                uint8_t *Source = Background + (SourceY * Header->Width + SourceX) * 3;
 #if 1
-            *Dest++ = *Source++;
-            *Dest++ = *Source++;
-            *Dest++ = *Source++;
+                *Dest++ = *Source++;
+                *Dest++ = *Source++;
+                *Dest++ = *Source++;
 #endif
 #if 0
-            *Dest++ = roundf(127.5 * (1 - cosf(ElapsedSeconds + Pi * (float)x / (float)Width)));
-            *Dest++ = roundf(127.5 * (1 - cosf(ElapsedSeconds + Pi * (1 - (float)y / (float)Height))));
-            *Dest++ = roundf(127.5 * (1 - cosf(ElapsedSeconds + Pi * (1 - (float)x / (float)Width))));
+                *Dest++ = roundf(127.5 * (1 - cosf(ElapsedSeconds + Pi * (float)x / (float)Width)));
+                *Dest++ = roundf(127.5 * (1 - cosf(ElapsedSeconds + Pi * (1 - (float)y / (float)Height))));
+                *Dest++ = roundf(127.5 * (1 - cosf(ElapsedSeconds + Pi * (1 - (float)x / (float)Width))));
 #endif
 #if 0
-            *Dest++ = (uint8_t)(255.0f * (ElapsedSeconds + Fmod(x, (float)Width) + 0.5f));
-            *Dest++ = (uint8_t)(255.0f * (ElapsedSeconds - Fmod(y, (float)Height) + 0.5f));
-            *Dest++ = (uint8_t)(255.0f * (ElapsedSeconds - Fmod(x, (float)Width) + 0.5f));
+                *Dest++ = (uint8_t)(255.0f * (ElapsedSeconds + Fmod(x, (float)Width) + 0.5f));
+                *Dest++ = (uint8_t)(255.0f * (ElapsedSeconds - Fmod(y, (float)Height) + 0.5f));
+                *Dest++ = (uint8_t)(255.0f * (ElapsedSeconds - Fmod(x, (float)Width) + 0.5f));
 #endif
-            *Dest++ = 0xFF;
+                *Dest++ = 0xFF;
+            }
+            DestRow += DestStride;
         }
-        DestRow += DestStride;
     }
+    else
+    {
+        DrawRectangle(Backbuffer, DestStride, ScreenRectangle, BackgroundColor, draw_flags_None);
+    }
+    
+    
     int32_t borderWidth = 2;
     int32_t innerWidth = 12;
     int32_t SquareWidth = innerWidth + 2*borderWidth;
@@ -348,12 +366,6 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     }
     struct v2i GameDimensionsInPixels = {SquareWidth * BoardDimensions.Width + 6, SquareWidth * BoardDimensions.Height + 6};
 
-    struct backbuffer _Backbuffer;
-    _Backbuffer.Dimensions.Width = Width;
-    _Backbuffer.Dimensions.Height = Height;
-    _Backbuffer.Memory = BackbufferMemory;
-    struct backbuffer *Backbuffer = &_Backbuffer;
-    
     struct v2i Position = GameState->WindowPosition;
     int32_t indent = DrawBorder(Backbuffer, DestStride, V2i(GameDimensionsInPixels.Width + 12, GameDimensionsInPixels.Height + 12 + 18), 1, Position, Black, Black, Black);
 #if 1

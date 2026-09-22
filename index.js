@@ -63,7 +63,7 @@ async function main() {
     const memorySize = stackSize + heapSize;
     const pages = Math.ceil(memorySize / (64*1024));
     game.memory = new WebAssembly.Memory({ initial: pages, maximum: pages });
-    const { instance } = await WebAssembly.instantiateStreaming(fetch("minesweeper.wasm"), {
+    const { instance } = await WebAssembly.instantiateStreaming(fetch('minesweeper.wasm'), {
         env: {
             memory: game.memory,
             cosf: Math.cos,
@@ -73,17 +73,16 @@ async function main() {
     });
     game.instance = instance;
 
-    const assetsResponse = await fetch("assets.msp");
-    const assetsArrayBuffer = await assetsResponse.arrayBuffer();
     let allocated = game.instance.exports.__heap_base;
-    game.assetsMemory = new Uint8Array(game.memory.buffer, allocated, assetsArrayBuffer.byteLength);
+    game.assetsMemory = new Uint8Array(game.memory.buffer, allocated, 20*1024*1024);
     allocated += game.assetsMemory.length;
     game.gameMemory = new Uint8Array(game.memory.buffer, allocated, 2*1024*1024);
     allocated += game.gameMemory.length;
     game.heap = new Uint8Array(game.memory.buffer, allocated, heapSize - allocated);
     allocated += game.heap.length;
-
-    game.assetsMemory.set(new Uint8Array(assetsArrayBuffer));
+    fetch('assets.msp').then(async response => {
+        game.assetsMemory.set(new Uint8Array(await response.arrayBuffer()));
+    });
 
     game.canvas.addEventListener('mousemove', game.onMouseMove);
     game.canvas.addEventListener('mouseup', game.onMouseUp);
