@@ -128,12 +128,13 @@ struct rect2i DrawRectangle(struct backbuffer *Backbuffer, int32_t Stride, struc
 int32_t DrawBorder(struct backbuffer *Backbuffer, int32_t Stride, struct v2i Dimensions, int32_t BorderWidth, struct v2i Position, int32_t colorTopLeft, int32_t colorCenter, int32_t colorBottomRight)
 {
     int32_t FullWidth = Dimensions.Width + 2*BorderWidth;
+    int32_t FullHeight = Dimensions.Height + 2*BorderWidth;
     int32_t StartX = Max(0, Position.X);
     int32_t StartY = Max(0, Position.Y);
     int32_t StopTopY = Min(Position.Y + (int32_t)BorderWidth, (int32_t)Backbuffer->Dimensions.Height);
     int32_t StopMidY = Min(Position.Y + (int32_t)BorderWidth + Dimensions.Height, (int32_t)Backbuffer->Dimensions.Height);
     int32_t StopX = Min(Position.X + (int32_t)FullWidth, (int32_t)Backbuffer->Dimensions.Width);
-    int32_t StopY = Min(Position.Y + (int32_t)FullWidth, (int32_t)Backbuffer->Dimensions.Height);
+    int32_t StopY = Min(Position.Y + (int32_t)FullHeight, (int32_t)Backbuffer->Dimensions.Height);
     int32_t StopLeftX = Min(Position.X + (int32_t)BorderWidth, (int32_t)Backbuffer->Dimensions.Width);
     int32_t StartRightX = Max((int32_t)0, Position.X + BorderWidth + Dimensions.Width);
     if (StartRightX < 0)
