@@ -14,6 +14,17 @@
 #define Max(A, B) ((A) < (B) ? (B) : (A))
 #define Clamp(A, X, B) (Max(A, Min(X, B)))
 
+#define InvalidCodePath Assert(!"Invalid code path");
+#define InvalidDefaultCase default: Assert(!"Invalid default case"); break;
+#define ArrayCount(Array) (sizeof(Array) / sizeof(Array[0]))
+#define OffsetOf(type, Member) ((size_t)&(((type *)0)->Member))
+#define NotImplemented Assert(!"Not implemented");
+
+#define Kilobytes(Value) ((u64)(Value)*1024)
+#define Megabytes(Value) (Kilobytes(Value)*1024)
+#define Gigabytes(Value) (Megabytes(Value)*1024)
+#define Terabytes(Value) (Gigabytes(Value)*1024)
+
 extern void logu64(uint64_t);
 
 struct game_button
@@ -137,11 +148,6 @@ int32_t DrawBorder(struct backbuffer *Backbuffer, int32_t Stride, struct v2i Dim
     int32_t StopY = Min(Position.Y + (int32_t)FullHeight, (int32_t)Backbuffer->Dimensions.Height);
     int32_t StopLeftX = Min(Position.X + (int32_t)BorderWidth, (int32_t)Backbuffer->Dimensions.Width);
     int32_t StartRightX = Max((int32_t)0, Position.X + BorderWidth + Dimensions.Width);
-    if (StartRightX < 0)
-    {
-        logu64(Position.X + BorderWidth + Dimensions.Width);
-        logu64(StartRightX);
-    }
     uint8_t *Row = Backbuffer->Memory + Stride * StartY + StartX * 4;
     for (int32_t IndexY = StartY; IndexY < StopTopY; IndexY++) {
         uint8_t *At = Row;
@@ -217,7 +223,7 @@ int32_t DrawBorder(struct backbuffer *Backbuffer, int32_t Stride, struct v2i Dim
     return BorderWidth;
 }
 
-void DrawTile(struct backbuffer *Backbuffer, int32_t Stride, int32_t Width, int32_t BorderWidth, struct v2i Position) {
+struct rect2i DrawTile(struct backbuffer *Backbuffer, int32_t Stride, int32_t Width, int32_t BorderWidth, struct v2i Position) {
     struct rect2i Rectangle;
     Rectangle.Dimensions.Width = Width;
     Rectangle.Dimensions.Height = Width;
@@ -226,6 +232,9 @@ void DrawTile(struct backbuffer *Backbuffer, int32_t Stride, int32_t Width, int3
     DrawBorder(Backbuffer, Stride, Rectangle.Dimensions, BorderWidth, Position, White, Gray, DarkGray);
     struct v4 GrayVector = {(float)Gray/255.0f, (float)Gray/255.0f, (float)Gray/255.0f, 1.0f};
     DrawRectangle(Backbuffer, Stride, Rectangle, GrayVector, draw_flags_None);
+
+    struct rect2i Result = {Position, {Rectangle.Dimensions.Width + BorderWidth + BorderWidth, Rectangle.Dimensions.Height + BorderWidth + BorderWidth}};
+    return Result;
 }
 
 float Fmod(float a, float b) {
@@ -244,6 +253,7 @@ struct image_header
 struct game_state
 {
     uint32_t Initialized;
+    uint32_t BoardDimensionsChoice;
     struct v2i WindowPosition;
     struct v2i DragOffset;
     struct v2i *DragTarget;
@@ -252,6 +262,14 @@ struct game_state
 void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, uint8_t *BackbufferMemory, int32_t MouseEndedDown, int32_t MouseHalfTransitionCount, int32_t MouseX, int32_t MouseY, uint8_t *AssetsMemory, size_t GameMemorySize, uint8_t *GameMemory)
 {
     struct game_state *GameState = (struct game_state*)GameMemory;
+    struct v2i Beginner = {9,9};
+    struct v2i Intermediate = {16,16};
+    struct v2i Expert = {30,16};
+    struct v2i BoardDimensionsOptions[] = {
+        Beginner,
+        Intermediate,
+        Expert,
+    };
 
     if (!GameState->Initialized)
     {
@@ -322,10 +340,13 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     }
     int32_t borderWidth = 2;
     int32_t innerWidth = 12;
-    int32_t boardWidth = 9;
-    int32_t boardHeight = 9;
-    int32_t squareWidth = innerWidth + 2*borderWidth;
-    int32_t gameWidthInPixels = squareWidth * 9 + 6;
+    int32_t SquareWidth = innerWidth + 2*borderWidth;
+    struct v2i BoardDimensions = Beginner;
+    if (0 <= GameState->BoardDimensionsChoice && GameState->BoardDimensionsChoice < ArrayCount(BoardDimensionsOptions))
+    {
+        BoardDimensions = BoardDimensionsOptions[GameState->BoardDimensionsChoice];
+    }
+    struct v2i GameDimensionsInPixels = {SquareWidth * BoardDimensions.Width + 6, SquareWidth * BoardDimensions.Height + 6};
 
     struct backbuffer _Backbuffer;
     _Backbuffer.Dimensions.Width = Width;
@@ -334,12 +355,12 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     struct backbuffer *Backbuffer = &_Backbuffer;
     
     struct v2i Position = GameState->WindowPosition;
-    int32_t indent = DrawBorder(Backbuffer, DestStride, V2i(gameWidthInPixels + 12, gameWidthInPixels + 12 + 18), 1, Position, Black, Black, Black);
+    int32_t indent = DrawBorder(Backbuffer, DestStride, V2i(GameDimensionsInPixels.Width + 12, GameDimensionsInPixels.Height + 12 + 18), 1, Position, Black, Black, Black);
 #if 1
     Position.X += indent;
     Position.Y += indent;
     struct rect2i TitleBarRectangle;
-    TitleBarRectangle.Dimensions = V2i(gameWidthInPixels + 12, 18);
+    TitleBarRectangle.Dimensions = V2i(GameDimensionsInPixels.Width + 12, 18);
     TitleBarRectangle.Position = Position;
     struct v4 TitleBarColor = { 0.0f, 0.0f, 1.0f, 1.0f };
     if (RectangleContains(TitleBarRectangle, MousePosition))
@@ -353,17 +374,22 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     }
     DrawRectangle(Backbuffer, DestStride, TitleBarRectangle, TitleBarColor, draw_flags_None);
     Position.Y += 18;
-    indent = DrawBorder(Backbuffer, DestStride, V2i(gameWidthInPixels, gameWidthInPixels), 6, Position, Gray, Gray, Gray);
+    indent = DrawBorder(Backbuffer, DestStride, GameDimensionsInPixels, 6, Position, Gray, Gray, Gray);
     Position.X += indent;
     Position.Y += indent;
-    indent = DrawBorder(Backbuffer, DestStride, V2i(squareWidth * 9, squareWidth * 9), 3, Position, DarkGray, Gray, White);
+    indent = DrawBorder(Backbuffer, DestStride, V2i(SquareWidth * BoardDimensions.Width, SquareWidth * BoardDimensions.Height), 3, Position, DarkGray, Gray, White);
     Position.X += indent;
     Position.Y += indent;
 
-    for (int32_t j = 0; j < boardHeight; ++j) {
-        for (int32_t i = 0; i < boardWidth; ++i) {
-            struct v2i TilePosition = {Position.X + i * squareWidth, Position.Y + j * squareWidth};
-            DrawTile(Backbuffer, DestStride, innerWidth, borderWidth, TilePosition);
+    int32_t TapCount = (MouseHalfTransitionCount + !!MouseEndedDown) / 2;
+
+    for (int32_t j = 0; j < BoardDimensions.Height; ++j) {
+        for (int32_t i = 0; i < BoardDimensions.Width; ++i) {
+            struct v2i TilePosition = {Position.X + i * SquareWidth, Position.Y + j * SquareWidth};
+            if (RectangleContains(DrawTile(Backbuffer, DestStride, innerWidth, borderWidth, TilePosition), MousePosition))
+            {
+                GameState->BoardDimensionsChoice = (GameState->BoardDimensionsChoice + TapCount) % ArrayCount(BoardDimensionsOptions);
+            }
         }
     }
 #endif
