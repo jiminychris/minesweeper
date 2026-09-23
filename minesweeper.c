@@ -89,6 +89,12 @@ struct rect2i
     struct v2i Dimensions;
 };
 
+struct rect2i Rect2i(struct v2i Position, struct v2i Dimensions)
+{
+    struct rect2i Result = {Position, Dimensions};
+    return Result;
+}
+
 uint32_t RectangleContains(struct rect2i Rectangle, struct v2i Position)
 {
     int32_t Left = Rectangle.Position.X;
@@ -223,7 +229,148 @@ int32_t DrawBorder(struct backbuffer *Backbuffer, int32_t Stride, struct v2i Dim
     return BorderWidth;
 }
 
-struct rect2i DrawTile(struct backbuffer *Backbuffer, int32_t Stride, int32_t Width, int32_t BorderWidth, struct v2i Position) {
+uint32_t SmileyColors[] =
+{
+    0,
+    0xFF << 24,
+    0xFF << 0 | 0xFF << 8 | 0x00 << 16 | 0xFF << 24,
+    0x80 << 0 | 0x80 << 8 | 0x00 << 16 | 0xFF << 24,
+};
+struct v2i SmileyDimensions = {17, 17};
+uint8_t SmileyBitmap[] = {
+    0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 2, 1, 1, 0, 0, 0, 0, 
+    0, 0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0, 
+    0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 
+    0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 
+    0, 1, 2, 2, 2, 1, 1, 2, 2, 2, 1, 1, 2, 2, 2, 1, 0, 
+    1, 2, 2, 2, 2, 1, 1, 2, 2, 2, 1, 1, 2, 2, 2, 2, 1, 
+    1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 
+    1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 
+    1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 
+    1, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 1, 
+    0, 1, 2, 2, 2, 1, 2, 2, 2, 2, 2, 1, 2, 2, 2, 1, 0, 
+    0, 1, 2, 2, 2, 2, 1, 1, 1, 1, 1, 2, 2, 2, 2, 1, 0, 
+    0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 
+    0, 0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0, 
+    0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 2, 1, 1, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 
+};
+uint8_t FrowneyBitmap[] = {
+    0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 2, 1, 1, 0, 0, 0, 0, 
+    0, 0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0, 
+    0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 
+    0, 1, 2, 2, 1, 2, 1, 2, 2, 2, 1, 2, 1, 2, 2, 1, 0, 
+    0, 1, 2, 2, 2, 1, 2, 2, 2, 2, 2, 1, 2, 2, 2, 1, 0, 
+    1, 2, 2, 2, 1, 2, 1, 2, 2, 2, 1, 2, 1, 2, 2, 2, 1, 
+    1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 
+    1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 
+    1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 
+    1, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 1, 
+    0, 1, 2, 2, 2, 1, 2, 2, 2, 2, 2, 1, 2, 2, 2, 1, 0, 
+    0, 1, 2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 1, 2, 2, 1, 0, 
+    0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 
+    0, 0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0, 
+    0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 2, 1, 1, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 
+};
+uint8_t CoolBitmap[] = {
+    0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 2, 1, 1, 0, 0, 0, 0, 
+    0, 0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0, 
+    0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 
+    0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 
+    0, 1, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 1, 0, 
+    1, 2, 2, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 2, 2, 1, 
+    1, 2, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 2, 1, 
+    1, 1, 2, 2, 3, 1, 1, 2, 2, 2, 1, 1, 3, 2, 2, 1, 1, 
+    1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 
+    1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 
+    0, 1, 2, 2, 2, 1, 2, 2, 2, 2, 2, 1, 2, 2, 2, 1, 0, 
+    0, 1, 2, 2, 2, 2, 1, 1, 1, 1, 1, 2, 2, 2, 2, 1, 0, 
+    0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 
+    0, 0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0, 
+    0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 2, 1, 1, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 
+};
+uint8_t SurprisedBitmap[] = {
+    0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 
+    0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 2, 1, 1, 0, 0, 0, 0, 
+    0, 0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0, 
+    0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 
+    0, 1, 2, 2, 3, 1, 3, 2, 2, 2, 3, 1, 3, 2, 2, 1, 0, 
+    0, 1, 2, 2, 1, 1, 1, 2, 2, 2, 1, 1, 1, 2, 2, 1, 0, 
+    1, 2, 2, 2, 3, 1, 3, 2, 2, 2, 3, 1, 3, 2, 2, 2, 1, 
+    1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 
+    1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 
+    1, 2, 2, 2, 2, 2, 2, 1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 
+    1, 2, 2, 2, 2, 2, 3, 1, 2, 1, 3, 2, 2, 2, 2, 2, 1, 
+    0, 1, 2, 2, 2, 2, 1, 2, 2, 2, 1, 2, 2, 2, 2, 1, 0, 
+    0, 1, 2, 2, 2, 2, 3, 1, 2, 1, 3, 2, 2, 2, 2, 1, 0, 
+    0, 0, 1, 2, 2, 2, 2, 1, 1, 1, 2, 2, 2, 2, 1, 0, 0, 
+    0, 0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0, 
+    0, 0, 0, 0, 1, 1, 2, 2, 2, 2, 2, 1, 1, 0, 0, 0, 0, 
+    0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 
+};
+
+enum smiley_state
+{
+    smiley_state_Normal,
+    smiley_state_Surprised,
+    smiley_state_Frowney,
+    smiley_state_Cool,
+};
+
+void DrawSmiley(struct backbuffer *Backbuffer, struct v2i Position, enum smiley_state State)
+{
+    int32_t Stride = Backbuffer->Dimensions.Width * 4;
+    uint8_t *DestRow = Backbuffer->Memory + Position.Y * Stride + Position.X * 4;
+    uint8_t *SourceRow;
+    switch (State)
+    {
+    case smiley_state_Surprised:
+    {
+        SourceRow = SurprisedBitmap;
+    } break;
+    case smiley_state_Cool:
+    {
+        SourceRow = CoolBitmap;
+    } break;
+    case smiley_state_Frowney:
+    {
+        SourceRow = FrowneyBitmap;
+    } break;
+    case smiley_state_Normal:
+    default:
+    {
+        SourceRow = SmileyBitmap;
+    } break;
+    }
+    int32_t StartY = Max(0, Position.Y);
+    int32_t StartX = Max(0, Position.X);
+    int32_t StopY = Min(Position.Y + SmileyDimensions.Height, Backbuffer->Dimensions.Height);
+    int32_t StopX = Min(Position.X + SmileyDimensions.Width, Backbuffer->Dimensions.Width);
+    for (int32_t IndexY = StartY; IndexY < StopY; IndexY++)
+    {
+        uint32_t *Dest = (uint32_t*)DestRow;
+        uint8_t *Source = SourceRow;
+        for (int32_t IndexX = StartX; IndexX < StopX; IndexX++)
+        {
+            uint32_t Color = SmileyColors[*Source++];
+            if (Color)
+            {
+                *Dest = Color;
+            }
+            Dest++;;
+        }
+        DestRow += Stride;
+        SourceRow += SmileyDimensions.Height;
+    }
+}
+
+struct rect2i DrawTile(struct backbuffer *Backbuffer, int32_t Stride, int32_t Width, int32_t BorderWidth, struct v2i Position)
+{
     struct rect2i Rectangle;
     Rectangle.Dimensions.Width = Width;
     Rectangle.Dimensions.Height = Width;
@@ -365,16 +512,16 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
         BoardDimensions = BoardDimensionsOptions[GameState->BoardDimensionsChoice];
     }
     struct v2i GameDimensionsInPixels = {SquareWidth * BoardDimensions.Width + 6, SquareWidth * BoardDimensions.Height + 6};
-
+    struct v2i GameBackgroundDimensions = {GameDimensionsInPixels.Width + 12, GameDimensionsInPixels.Height + 12 + 43};
     struct v2i Position = GameState->WindowPosition;
-    int32_t indent = DrawBorder(Backbuffer, DestStride, V2i(GameDimensionsInPixels.Width + 12, GameDimensionsInPixels.Height + 12 + 18), 1, Position, Black, Black, Black);
-#if 1
-    Position.X += indent;
-    Position.Y += indent;
     struct rect2i TitleBarRectangle;
-    TitleBarRectangle.Dimensions = V2i(GameDimensionsInPixels.Width + 12, 18);
+    TitleBarRectangle.Dimensions = V2i(GameDimensionsInPixels.Width + 12 + 6, 18);
     TitleBarRectangle.Position = Position;
+    struct rect2i SeparatorRectangle;
+    SeparatorRectangle.Dimensions = V2i(TitleBarRectangle.Dimensions.Width, 1);
     struct v4 TitleBarColor = { 0.0f, 0.0f, 1.0f, 1.0f };
+    struct v4 SeparatorColor = {0, 0, 0, 1};
+    struct v4 MenuBarColor = {1, 1, 1, 1};
     if (RectangleContains(TitleBarRectangle, MousePosition))
     {
         if (MouseEndedDown && (MouseHalfTransitionCount & 1))
@@ -384,14 +531,63 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
             GameState->DragTarget = &GameState->WindowPosition;
         }
     }
+    int32_t Indent = DrawBorder(Backbuffer, DestStride, V2i(GameBackgroundDimensions.Width + 6, GameBackgroundDimensions.Height + 6 + TitleBarRectangle.Dimensions.Height * 2 + SeparatorRectangle.Dimensions.Height * 2), 1, Position, Black, Black, Black);
+#if 1
+    Position.X += Indent;
+    Position.Y += Indent;
+    TitleBarRectangle.Position = Position;
     DrawRectangle(Backbuffer, DestStride, TitleBarRectangle, TitleBarColor, draw_flags_None);
-    Position.Y += 18;
-    indent = DrawBorder(Backbuffer, DestStride, GameDimensionsInPixels, 6, Position, Gray, Gray, Gray);
-    Position.X += indent;
-    Position.Y += indent;
-    indent = DrawBorder(Backbuffer, DestStride, V2i(SquareWidth * BoardDimensions.Width, SquareWidth * BoardDimensions.Height), 3, Position, DarkGray, Gray, White);
-    Position.X += indent;
-    Position.Y += indent;
+    Position.Y += TitleBarRectangle.Dimensions.Height;
+    SeparatorRectangle.Position = Position;
+    DrawRectangle(Backbuffer, DestStride, SeparatorRectangle, SeparatorColor, draw_flags_None);
+    Position.Y += SeparatorRectangle.Dimensions.Height;
+    TitleBarRectangle.Position = Position;
+    DrawRectangle(Backbuffer, DestStride, TitleBarRectangle, MenuBarColor, draw_flags_None);
+    Position.Y += TitleBarRectangle.Dimensions.Height;
+    SeparatorRectangle.Position = Position;
+    DrawRectangle(Backbuffer, DestStride, SeparatorRectangle, SeparatorColor, draw_flags_None);
+    Position.Y += SeparatorRectangle.Dimensions.Height;
+    Indent = DrawBorder(Backbuffer, DestStride, V2i(GameBackgroundDimensions.Width, GameBackgroundDimensions.Height), 3, Position, White, Gray, DarkGray);
+    Position.X += Indent;
+    Position.Y += Indent;
+    struct rect2i GameBackgroundRectangle = {Position, GameBackgroundDimensions};
+    struct v4 GrayVector = {(float)Gray/255.0f, (float)Gray/255.0f, (float)Gray/255.0f, 1.0f};
+    DrawRectangle(Backbuffer, DestStride, GameBackgroundRectangle, GrayVector, draw_flags_None);
+    Position.X += 6;
+    Position.Y += 6;
+    int32_t ScoreBackgroundWidth = GameBackgroundDimensions.Width - 16;
+    Indent = DrawBorder(Backbuffer, DestStride, V2i(ScoreBackgroundWidth, 33), 2, Position, DarkGray, Gray, White);
+    struct v2i ScoreOrigin = {Position.X + Indent, Position.Y + Indent};
+    struct v2i ScorePosition = {ScoreOrigin.X + 5, ScoreOrigin.Y + 4};
+    struct v2i ScoreDimensions = {39, 23};
+    struct v4 ScoreBackgroundColor = {0,0,0,1};
+    Indent = DrawBorder(Backbuffer, DestStride, ScoreDimensions, 1, ScorePosition, DarkGray, Gray, White);
+    ScorePosition.X += Indent;
+    ScorePosition.Y += Indent;
+    DrawRectangle(Backbuffer, DestStride, Rect2i(ScorePosition, ScoreDimensions), ScoreBackgroundColor, draw_flags_None);
+
+    int32_t SmileyBorderWidthOuter = 1;
+    int32_t SmileyBorderWidthInner = 2;
+    struct v2i SmileyDimensionsInner = V2i(20, 20);
+    struct v2i SmileyDimensionsOuter = V2i(SmileyDimensionsInner.X + SmileyBorderWidthInner*2, SmileyDimensionsInner.Y + SmileyBorderWidthInner*2);
+    int32_t SmileyWidth = SmileyDimensionsOuter.X + SmileyBorderWidthOuter*2;
+    ScorePosition = V2i(ScoreOrigin.X + (ScoreBackgroundWidth - SmileyWidth) / 2, ScoreOrigin.Y + 4);
+    Indent = DrawBorder(Backbuffer, DestStride, SmileyDimensionsOuter, SmileyBorderWidthOuter, ScorePosition, DarkGray, Gray, DarkGray);
+    ScorePosition.X += Indent;
+    ScorePosition.Y += Indent;
+    Indent = DrawBorder(Backbuffer, DestStride, SmileyDimensionsInner, SmileyBorderWidthInner, ScorePosition, White, Gray, DarkGray);
+    DrawSmiley(Backbuffer, V2i(ScorePosition.X + Indent + 2, ScorePosition.Y + Indent + 2), MouseEndedDown ? smiley_state_Surprised : smiley_state_Normal);
+
+    ScorePosition = V2i(ScoreOrigin.X + ScoreBackgroundWidth - 5 - 1 - ScoreDimensions.Width, ScoreOrigin.Y + 4);
+    Indent = DrawBorder(Backbuffer, DestStride, ScoreDimensions, 1, ScorePosition, DarkGray, Gray, White);
+    ScorePosition.X += Indent;
+    ScorePosition.Y += Indent;
+    DrawRectangle(Backbuffer, DestStride, Rect2i(ScorePosition, ScoreDimensions), ScoreBackgroundColor, draw_flags_None);
+    // TODO: Score
+    Position.Y += 33 + 4 + 6;
+    Indent = DrawBorder(Backbuffer, DestStride, V2i(SquareWidth * BoardDimensions.Width, SquareWidth * BoardDimensions.Height), 3, Position, DarkGray, Gray, White);
+    Position.X += Indent;
+    Position.Y += Indent;
 
     int32_t TapCount = (MouseHalfTransitionCount + !!MouseEndedDown) / 2;
 
