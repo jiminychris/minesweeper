@@ -103,8 +103,7 @@ uint32_t RectangleContains(struct rect2i Rectangle, struct v2i Position)
     int32_t Right = Rectangle.Position.X + Rectangle.Dimensions.Width;
     int32_t Top = Rectangle.Position.Y;
     int32_t Bottom = Rectangle.Position.Y + Rectangle.Dimensions.Height;
-    // TODO: Is this < ... <= correct?
-    return Left < Position.X && Position.X <= Right && Top < Position.Y && Position.Y <= Bottom;
+    return Left <= Position.X && Position.X < Right && Top <= Position.Y && Position.Y < Bottom;
 }
 
 enum draw_flags
@@ -383,6 +382,13 @@ struct image_header
     int32_t Width;
     int32_t Height;
 };
+
+struct platform_state
+{
+    struct v2i MousePosition;
+    struct game_button LeftMouseButton;
+    struct game_button RightMouseButton;
+};
 #pragma pack(pop)
 
 struct game_state
@@ -395,9 +401,18 @@ struct game_state
     struct v2i *DragTarget;
 };
 
-void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, uint8_t *BackbufferMemory, int32_t MouseEndedDown, int32_t MouseHalfTransitionCount, int32_t MouseX, int32_t MouseY, uint8_t *AssetsMemory, size_t GameMemorySize, uint8_t *GameMemory)
+void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, uint8_t *BackbufferMemory, uint8_t *AssetsMemory, size_t GameMemorySize, uint8_t *GameMemory)
 {
-    struct game_state *GameState = (struct game_state*)GameMemory;
+    struct platform_state *PlatformState = (struct platform_state*)GameMemory;
+    struct game_state *GameState = (struct game_state*)(PlatformState + 1);
+
+    struct v2i MousePosition = PlatformState->MousePosition;
+
+    int32_t LeftMouseEndedDown = PlatformState->LeftMouseButton.EndedDown;
+    int32_t LeftMouseHalfTransitionCount = PlatformState->LeftMouseButton.HalfTransitionCount;
+
+    int32_t RightMouseEndedDown = PlatformState->RightMouseButton.EndedDown;
+    int32_t RightMouseHalfTransitionCount = PlatformState->RightMouseButton.HalfTransitionCount;
 
     struct backbuffer _Backbuffer;
     _Backbuffer.Dimensions.Width = Width;
@@ -424,10 +439,10 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
 
     if (GameState->DragTarget)
     {
-        if (MouseEndedDown)
+        if (LeftMouseEndedDown)
         {
-            GameState->DragTarget->X = (int32_t)MouseX + GameState->DragOffset.X;
-            GameState->DragTarget->Y = (int32_t)MouseY + GameState->DragOffset.Y;
+            GameState->DragTarget->X = MousePosition.X + GameState->DragOffset.X;
+            GameState->DragTarget->Y = MousePosition.Y + GameState->DragOffset.Y;
         }
         else
         {
@@ -435,7 +450,6 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
         }
     }
     
-    struct v2i MousePosition = {MouseX, MouseY};
     struct image_header *Header = (struct image_header *)AssetsMemory;
     int32_t DestStride = Width*4;
 
@@ -512,20 +526,20 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     struct v4 TitleBarColor = { 0.0f, 0.0f, 1.0f, 1.0f };
     struct v4 SeparatorColor = {0, 0, 0, 1};
     struct v4 MenuBarColor = {1, 1, 1, 1};
-    if (RectangleContains(TitleBarRectangle, MousePosition))
-    {
-        if (MouseEndedDown && (MouseHalfTransitionCount & 1))
-        {
-            GameState->DragOffset.X = GameState->WindowPosition.X - MouseX;
-            GameState->DragOffset.Y = GameState->WindowPosition.Y - MouseY;
-            GameState->DragTarget = &GameState->WindowPosition;
-        }
-    }
     int32_t Indent = DrawBorder(Backbuffer, DestStride, V2i(GameBackgroundDimensions.Width + 6, GameBackgroundDimensions.Height + 6 + TitleBarRectangle.Dimensions.Height * 2 + SeparatorRectangle.Dimensions.Height * 2), 1, Position, Black, Black, Black);
 #if 1
     Position.X += Indent;
     Position.Y += Indent;
     TitleBarRectangle.Position = Position;
+    if (RectangleContains(TitleBarRectangle, MousePosition))
+    {
+        if (LeftMouseEndedDown && (LeftMouseHalfTransitionCount & 1))
+        {
+            GameState->DragOffset.X = GameState->WindowPosition.X - MousePosition.X;
+            GameState->DragOffset.Y = GameState->WindowPosition.Y - MousePosition.Y;
+            GameState->DragTarget = &GameState->WindowPosition;
+        }
+    }
     DrawRectangle(Backbuffer, DestStride, TitleBarRectangle, TitleBarColor, draw_flags_None);
     Position.Y += TitleBarRectangle.Dimensions.Height;
     SeparatorRectangle.Position = Position;
@@ -582,23 +596,25 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     Position.X += Indent;
     Position.Y += Indent;
 
-    int32_t TapCount = (MouseHalfTransitionCount + !!MouseEndedDown) / 2;
+    int32_t RightTapCount = (RightMouseHalfTransitionCount + !!RightMouseEndedDown) / 2;
 
     enum smiley_state SmileyState = smiley_state_Normal;
     for (int32_t j = 0; j < BoardDimensions.Height; ++j) {
         for (int32_t i = 0; i < BoardDimensions.Width; ++i) {
             struct v2i TilePosition = {Position.X + i * SquareWidth, Position.Y + j * SquareWidth};
             struct rect2i TileRectangle = {TilePosition, {innerWidth + borderWidth + borderWidth, innerWidth + borderWidth + borderWidth}};
-            if (RectangleContains(TileRectangle, MousePosition) && MouseEndedDown)
+            int32_t Hover = RectangleContains(TileRectangle, MousePosition);
+            enum tile_state TileState = tile_state_Normal;
+            if (Hover)
             {
-                SmileyState = smiley_state_Surprised;
-                DrawTile(Backbuffer, DestStride, innerWidth, borderWidth, TilePosition, tile_state_Depressed);
-//                GameState->BoardDimensionsChoice = (GameState->BoardDimensionsChoice + TapCount) % ArrayCount(BoardDimensionsOptions);
+                if (LeftMouseEndedDown)
+                {
+                    SmileyState = smiley_state_Surprised;
+                    TileState = tile_state_Depressed;
+                }
+                GameState->BoardDimensionsChoice = (GameState->BoardDimensionsChoice + RightTapCount) % ArrayCount(BoardDimensionsOptions);
             }
-            else
-            {
-                DrawTile(Backbuffer, DestStride, innerWidth, borderWidth, TilePosition, tile_state_Normal);
-            }
+            DrawTile(Backbuffer, DestStride, innerWidth, borderWidth, TilePosition, TileState);
         }
     }
     DrawSmiley(Backbuffer, SmileyPosition, SmileyState);

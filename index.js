@@ -2,8 +2,14 @@ const MILLI = 1 / 1000;
 
 class Game {
     constructor() {
-        this.mouseHalfTransitionCount = 0;
-        this.mouseEndedDown = false;
+        this.leftMouseButton = {
+            halfTransitionCount: 0,
+            endedDown: false,
+        };
+        this.rightMouseButton = {
+            halfTransitionCount: 0,
+            endedDown: false,
+        };
         this.updateAndRender = this.updateAndRender.bind(this);
         this.onMouseMove = this.onMouseMove.bind(this);
         this.onMouseUp = this.onMouseUp.bind(this);
@@ -15,18 +21,46 @@ class Game {
     }
 
     onMouseMove(e) {
-        this.mouseX = e.offsetX;
-        this.mouseY = e.offsetY;
+        this.mouseX = e.clientX;
+        this.mouseY = e.clientY;
     }
 
     onMouseUp(e) {
-        this.mouseHalfTransitionCount++;
-        this.mouseEndedDown = false;
+        let button;
+        switch (e.button)
+        {
+            case 0:
+            {
+                button = this.leftMouseButton;
+            } break;
+            case 2:
+            {
+                button = this.rightMouseButton;
+            } break;
+        }
+        if (button) {
+            button.halfTransitionCount++;
+            button.endedDown = false;
+        }
     }
 
     onMouseDown(e) {
-        this.mouseHalfTransitionCount++;
-        this.mouseEndedDown = true;
+        let button;
+        switch (e.button)
+        {
+            case 0:
+            {
+                button = this.leftMouseButton;
+            } break;
+            case 2:
+            {
+                button = this.rightMouseButton;
+            } break;
+        }
+        if (button) {
+            button.halfTransitionCount++;
+            button.endedDown = true;
+        }
     }
 
     updateAndRender() {
@@ -37,8 +71,17 @@ class Game {
         this.canvas.style.width = `${this.window.innerWidth}px`;
         this.canvas.style.height = `${this.window.innerHeight}px`;
 
-        this.instance.exports.GameUpdateAndRender(elapsedSeconds, this.canvas.width, this.canvas.height, this.heap.byteOffset, this.mouseEndedDown, this.mouseHalfTransitionCount, this.mouseX, this.mouseY, this.assetsMemory.byteOffset, this.gameMemory.length, this.gameMemory.byteOffset);
-        this.mouseHalfTransitionCount = 0;
+        console.log(this.mouseX, this.mouseY);
+        this.gameMemoryView.setInt32(0, this.mouseX, true);
+        this.gameMemoryView.setInt32(4, this.mouseY, true);
+        this.gameMemoryView.setUint32(8, this.leftMouseButton.endedDown, true);
+        this.gameMemoryView.setUint32(12, this.leftMouseButton.halfTransitionCount, true);
+        this.gameMemoryView.setUint32(16, this.rightMouseButton.endedDown, true);
+        this.gameMemoryView.setUint32(20, this.rightMouseButton.halfTransitionCount, true);
+
+        this.instance.exports.GameUpdateAndRender(elapsedSeconds, this.canvas.width, this.canvas.height, this.heap.byteOffset, this.assetsMemory.byteOffset, this.gameMemory.length, this.gameMemory.byteOffset);
+        this.leftMouseButton.halfTransitionCount = 0;
+        this.rightMouseButton.halfTransitionCount = 0;
 
         this.ctx.fillStyle = 'magenta';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -77,6 +120,7 @@ async function main() {
     game.assetsMemory = new Uint8Array(game.memory.buffer, allocated, 20*1024*1024);
     allocated += game.assetsMemory.length;
     game.gameMemory = new Uint8Array(game.memory.buffer, allocated, 2*1024*1024);
+    game.gameMemoryView = new DataView(game.gameMemory.buffer, game.gameMemory.byteOffset, game.gameMemory.byteLength);
     allocated += game.gameMemory.length;
     game.heap = new Uint8Array(game.memory.buffer, allocated, heapSize - allocated);
     allocated += game.heap.length;
@@ -87,6 +131,9 @@ async function main() {
     game.canvas.addEventListener('mousemove', game.onMouseMove);
     game.canvas.addEventListener('mouseup', game.onMouseUp);
     game.canvas.addEventListener('mousedown', game.onMouseDown);
+    game.canvas.addEventListener('contextmenu', e => {
+        e.preventDefault();
+    });
 
     game.requestNextFrame();
 }
