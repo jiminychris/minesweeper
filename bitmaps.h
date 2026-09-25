@@ -367,3 +367,54 @@ char *NumberBitmaps[] = {
     Number8,
     Number9,
 };
+
+
+uint32_t TileColors[] =
+{
+    0,
+    0xFF << 24,
+    0xFF << 0 | 0xFF << 24,
+};
+
+struct bitmap
+{
+    int32_t ColorCount;
+    uint32_t *Colors;
+    struct v2i Dimensions;
+    char *Bitmap;
+};
+struct bitmap FlagBitmap = {
+    ArrayCount(TileColors),
+    TileColors,
+    {12, 12},
+    "000000000000"
+    "000002200000"
+    "000222200000"
+    "002222200000"
+    "000222200000"
+    "000002200000"
+    "000000100000"
+    "000000100000"
+    "000011110000"
+    "001111111100"
+    "001111111100"
+    "000000000000",
+};
+
+struct bitmap QuestionMarkBitmap = {
+    ArrayCount(TileColors),
+    TileColors,
+    {12, 12},
+    "000000000000"
+    "000011110000"
+    "000110011000"
+    "000110011000"
+    "000000011000"
+    "000000110000"
+    "000001100000"
+    "000001100000"
+    "000000000000"
+    "000001100000"
+    "000001100000"
+    "000000000000",
+};

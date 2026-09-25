@@ -1,6 +1,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+typedef uint8_t u8;
+
 #define White 255
 #define Gray 192
 #define DarkGray 128
@@ -104,6 +106,62 @@ uint32_t RectangleContains(struct rect2i Rectangle, struct v2i Position)
     int32_t Top = Rectangle.Position.Y;
     int32_t Bottom = Rectangle.Position.Y + Rectangle.Dimensions.Height;
     return Left <= Position.X && Position.X < Right && Top <= Position.Y && Position.Y < Bottom;
+}
+
+// Field State is stored like in 8-bit value
+// Bits 3-0 (LSB) store the number of neighboring mines (0-8)
+// Bit 4 is whether it's a mine.
+// Bit 5 is unused.
+// Bits 7-6 (MSB) store the user state of the tile
+//   00 = Blank (unrevealed)
+//   01 = Flagged
+//   10 = Question Marked
+//   11 = Revealed
+
+enum tile_user_state
+{
+    tile_user_state_Blank,
+    tile_user_state_Flagged,
+    tile_user_state_QuestionMarked,
+    tile_user_state_Revealed,
+};
+
+struct minesweeper_tile_state
+{
+    u8 NeighborCount;
+    u8 IsMine;
+    enum tile_user_state UserState;
+
+    u8 IsDepressed;
+};
+
+enum minesweeper_action
+{
+    MinesweeperAction_None,
+    MinesweeperAction_Reveal,
+    MinesweeperAction_ToggleUserState,
+};
+
+struct minesweeper_tile_state
+ExtractMinesweeperTileState(uint8_t Value)
+{
+    struct minesweeper_tile_state Result;
+    Result.NeighborCount = Value & 0x0F;
+    Result.IsMine = (Value & 0x10) == 0x10;
+    Result.UserState = (Value >> 6);
+
+    Result.IsDepressed = 0;
+    return Result;
+}
+
+u8
+CompressMinesweeperTileState(struct minesweeper_tile_state State)
+{
+    u8 Result = (
+        (State.NeighborCount << 0)
+        | (State.IsMine << 4)
+        | (State.UserState << 6));
+    return Result;
 }
 
 enum draw_flags
@@ -286,6 +344,37 @@ void DrawSmiley(struct backbuffer *Backbuffer, struct v2i Position, enum smiley_
     }
 }
 
+void DrawBitmap(struct backbuffer *Backbuffer, int32_t Stride, struct v2i Position, struct bitmap Bitmap)
+{
+    uint8_t *DestRow = Backbuffer->Memory + Position.Y * Stride + Position.X * 4;
+    char *SourceRow = Bitmap.Bitmap;
+    int32_t StartY = Max(0, Position.Y);
+    int32_t StartX = Max(0, Position.X);
+    int32_t StopY = Min(Position.Y + Bitmap.Dimensions.Height, Backbuffer->Dimensions.Height);
+    int32_t StopX = Min(Position.X + Bitmap.Dimensions.Width, Backbuffer->Dimensions.Width);
+    for (int32_t IndexY = StartY; IndexY < StopY; IndexY++)
+    {
+        uint32_t *Dest = (uint32_t*)DestRow;
+        char *Source = SourceRow;
+        for (int32_t IndexX = StartX; IndexX < StopX; IndexX++)
+        {
+            int32_t ColorIndex = *Source++ - '0';
+            uint32_t Color = 0;
+            if (0 <= ColorIndex && ColorIndex < Bitmap.ColorCount)
+            {
+                Color = Bitmap.Colors[ColorIndex];
+            }
+            if (Color)
+            {
+                *Dest = Color;
+            }
+            Dest++;
+        }
+        DestRow += Stride;
+        SourceRow += Bitmap.Dimensions.Width;
+    }
+}
+
 void DrawNumber(struct backbuffer *Backbuffer, struct v2i Position, int32_t Number)
 {
     int32_t Stride = Backbuffer->Dimensions.Width * 4;
@@ -334,19 +423,11 @@ void DrawNumber(struct backbuffer *Backbuffer, struct v2i Position, int32_t Numb
     }
 }
 
-enum tile_state
-{
-    tile_state_Normal,
-    tile_state_Depressed,
-};
-
-    struct rect2i DrawTile(struct backbuffer *Backbuffer, int32_t Stride, int32_t Width, int32_t BorderWidth, struct v2i Position, enum tile_state State)
+struct rect2i DrawTile(struct backbuffer *Backbuffer, int32_t Stride, int32_t Width, int32_t BorderWidth, struct v2i Position, struct minesweeper_tile_state State)
 {
     struct rect2i Result = {Position, {Width + BorderWidth + BorderWidth, Width + BorderWidth + BorderWidth}};
     struct v4 GrayVector = {(float)Gray/255.0f, (float)Gray/255.0f, (float)Gray/255.0f, 1.0f};
-    switch (State)
-    {
-    case tile_state_Depressed:
+    if (State.IsDepressed || State.UserState == tile_user_state_Revealed)
     {
         struct rect2i Rectangle;
         Rectangle.Dimensions.Width = Rectangle.Dimensions.Height = Result.Dimensions.Width - 2;
@@ -355,9 +436,8 @@ enum tile_state
         DrawBorder(Backbuffer, Stride, Rectangle.Dimensions, 1, Position, DarkGray, DarkGray, DarkGray);
         Rectangle.Dimensions.Width = Rectangle.Dimensions.Height = Rectangle.Dimensions.Width + 1;
         DrawRectangle(Backbuffer, Stride, Rectangle, GrayVector, draw_flags_None);
-    } break;
-    case tile_state_Normal:
-    default:
+    }
+    else
     {
         struct rect2i Rectangle;
         Rectangle.Dimensions.Width = Rectangle.Dimensions.Height = Width;
@@ -365,7 +445,15 @@ enum tile_state
         Rectangle.Position.Y = Position.Y + BorderWidth;
         DrawBorder(Backbuffer, Stride, Rectangle.Dimensions, BorderWidth, Position, White, Gray, DarkGray);
         DrawRectangle(Backbuffer, Stride, Rectangle, GrayVector, draw_flags_None);
-    } break;
+
+        if (State.UserState == tile_user_state_Flagged)
+        {
+            DrawBitmap(Backbuffer, Stride, Rectangle.Position, FlagBitmap);
+        }
+        else if (State.UserState == tile_user_state_QuestionMarked)
+        {
+            DrawBitmap(Backbuffer, Stride, Rectangle.Position, QuestionMarkBitmap);
+        }
     }
 
     return Result;
@@ -391,14 +479,27 @@ struct platform_state
 };
 #pragma pack(pop)
 
+#define MAX_FIELD_WIDTH 30
+#define MAX_FIELD_HEIGHT 24
+
+enum minesweeper_gameplay_state
+{
+    minesweeper_gameplay_state_Playing,
+    minesweeper_gameplay_state_Victorious,
+    minesweeper_gameplay_state_GameOver,
+};
+
 struct game_state
 {
     uint32_t Initialized;
+    enum minesweeper_gameplay_state GameplayState;
     uint32_t BoardDimensionsChoice;
     float GameStart;
     struct v2i WindowPosition;
     struct v2i DragOffset;
     struct v2i *DragTarget;
+    int32_t FlagsRemaining;
+    uint8_t Field[MAX_FIELD_HEIGHT+2][MAX_FIELD_WIDTH+2];
 };
 
 void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, uint8_t *BackbufferMemory, uint8_t *AssetsMemory, size_t GameMemorySize, uint8_t *GameMemory)
@@ -434,6 +535,7 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
         GameState->Initialized = 1;
         GameState->WindowPosition.X = 100;
         GameState->WindowPosition.Y = 100;
+        GameState->FlagsRemaining = 10;
         GameState->GameStart = ElapsedSeconds;
     }
 
@@ -569,9 +671,8 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     ScorePosition.X += Indent;
     ScorePosition.Y += Indent;
     DrawRectangle(Backbuffer, DestStride, Rect2i(ScorePosition, ScoreDimensions), ScoreBackgroundColor, draw_flags_None);
-    int32_t FlagsRemaining = 10;
     int32_t GameTimer = (int32_t)(ElapsedSeconds - GameState->GameStart);
-    DrawNumber(Backbuffer, ScorePosition, FlagsRemaining);
+    DrawNumber(Backbuffer, ScorePosition, GameState->FlagsRemaining);
 
     int32_t SmileyBorderWidthOuter = 1;
     int32_t SmileyBorderWidthInner = 2;
@@ -596,24 +697,70 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     Position.X += Indent;
     Position.Y += Indent;
 
-    int32_t RightTapCount = (RightMouseHalfTransitionCount + !!RightMouseEndedDown) / 2;
+    int32_t LeftReleaseCount = (LeftMouseHalfTransitionCount + !LeftMouseEndedDown) / 2;
+    int32_t RightReleaseCount = (RightMouseHalfTransitionCount + !RightMouseEndedDown) / 2;
 
     enum smiley_state SmileyState = smiley_state_Normal;
     for (int32_t j = 0; j < BoardDimensions.Height; ++j) {
         for (int32_t i = 0; i < BoardDimensions.Width; ++i) {
+            struct v2i FieldCoordinate = {i+1, j+1};
+            uint8_t TileValue = GameState->Field[FieldCoordinate.Y][FieldCoordinate.X];
+            struct minesweeper_tile_state TileState = ExtractMinesweeperTileState(TileValue);
             struct v2i TilePosition = {Position.X + i * SquareWidth, Position.Y + j * SquareWidth};
             struct rect2i TileRectangle = {TilePosition, {innerWidth + borderWidth + borderWidth, innerWidth + borderWidth + borderWidth}};
             int32_t Hover = RectangleContains(TileRectangle, MousePosition);
-            enum tile_state TileState = tile_state_Normal;
-            if (Hover)
+            if (TileState.UserState != tile_user_state_Revealed && Hover)
             {
-                if (LeftMouseEndedDown)
+                if (LeftReleaseCount)
                 {
-                    SmileyState = smiley_state_Surprised;
-                    TileState = tile_state_Depressed;
+                    if (TileState.UserState == tile_user_state_Flagged)
+                    {
+                    }
+                    else if (TileState.IsMine)
+                    {
+                        GameState->GameplayState = minesweeper_gameplay_state_GameOver;
+                    }
+                    else
+                    {
+                        logu64(TileState.UserState);
+                        TileState.UserState = tile_user_state_Revealed;
+                        logu64(TileState.UserState);
+//                        FloodFill(State, &TranState->Arena, FieldCoordinate);
+                    }
                 }
-                GameState->BoardDimensionsChoice = (GameState->BoardDimensionsChoice + RightTapCount) % ArrayCount(BoardDimensionsOptions);
+
+                if (TileState.UserState != tile_user_state_Revealed)
+                {
+                    enum tile_user_state OldUserState = TileState.UserState;
+                    TileState.UserState = (TileState.UserState + RightReleaseCount) % 3;
+                    if (OldUserState != TileState.UserState)
+                    {
+                        if (TileState.UserState == tile_user_state_Flagged)
+                        {
+                            if (GameState->FlagsRemaining <= 0)
+                            {
+                                TileState.UserState = tile_user_state_QuestionMarked;
+                            }
+                            else
+                            {
+                                GameState->FlagsRemaining--;
+                            }
+                        }
+                        else if (OldUserState == tile_user_state_Flagged)
+                        {
+                            GameState->FlagsRemaining++;
+                        }
+                    }
+                    if (LeftMouseEndedDown && TileState.UserState != tile_user_state_Flagged)
+                    {
+                        SmileyState = smiley_state_Surprised;
+                        TileState.IsDepressed = 1;
+                    }
+                }
+//                GameState->BoardDimensionsChoice = (GameState->BoardDimensionsChoice + RightReleaseCount) % ArrayCount(BoardDimensionsOptions);
             }
+            GameState->Field[FieldCoordinate.Y][FieldCoordinate.X] = CompressMinesweeperTileState(TileState);
+
             DrawTile(Backbuffer, DestStride, innerWidth, borderWidth, TilePosition, TileState);
         }
     }

@@ -71,7 +71,6 @@ class Game {
         this.canvas.style.width = `${this.window.innerWidth}px`;
         this.canvas.style.height = `${this.window.innerHeight}px`;
 
-        console.log(this.mouseX, this.mouseY);
         this.gameMemoryView.setInt32(0, this.mouseX, true);
         this.gameMemoryView.setInt32(4, this.mouseY, true);
         this.gameMemoryView.setUint32(8, this.leftMouseButton.endedDown, true);
