@@ -2,6 +2,14 @@
 #include <stdint.h>
 
 typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+
+typedef int8_t s8;
+typedef int16_t s16;
+typedef int32_t s32;
+typedef int64_t s64;
 
 #define White 255
 #define Gray 192
@@ -16,6 +24,8 @@ typedef uint8_t u8;
 #define Max(A, B) ((A) < (B) ? (B) : (A))
 #define Clamp(A, X, B) (Max(A, Min(X, B)))
 
+
+#define Assert(Expr) {if(!(Expr)) {int __AssertInt = *((volatile int *)0);}}
 #define InvalidCodePath Assert(!"Invalid code path");
 #define InvalidDefaultCase default: Assert(!"Invalid default case"); break;
 #define ArrayCount(Array) (sizeof(Array) / sizeof(Array[0]))
@@ -27,32 +37,54 @@ typedef uint8_t u8;
 #define Gigabytes(Value) (Megabytes(Value)*1024)
 #define Terabytes(Value) (Gigabytes(Value)*1024)
 
-extern void logu64(uint64_t);
+extern void logu64(u64);
 
-struct game_button
-{
-    uint32_t EndedDown;
-    uint32_t HalfTransitionCount;
-};
 
+#pragma pack(push, 1)
 struct v2i
 {
     union
     {
         struct
         {
-            int32_t X;
-            int32_t Y;
+            s32 X;
+            s32 Y;
         };
         struct
         {
-            int32_t Width;
-            int32_t Height;
+            s32 Width;
+            s32 Height;
         };
     };
 };
+struct image_header
+{
+    s32 Width;
+    s32 Height;
+};
 
-struct v2i V2i(int32_t X, int32_t Y)
+struct seed
+{
+    u64 Value;
+};
+
+struct game_button
+{
+    s32 EndedDown;
+    s32 HalfTransitionCount;
+};
+
+struct game_input
+{
+    float ElapsedSeconds;
+    u64 SeedValue;
+    struct v2i MousePosition;
+    struct game_button LeftMouseButton;
+    struct game_button RightMouseButton;
+};
+#pragma pack(pop)
+
+struct v2i V2i(s32 X, s32 Y)
 {
     struct v2i Result = {X, Y};
     return Result;
@@ -84,7 +116,7 @@ struct v4
 struct backbuffer
 {
     struct v2i Dimensions;
-    uint8_t *Memory;
+    u8 *Memory;
 };
 
 struct rect2i
@@ -99,12 +131,12 @@ struct rect2i Rect2i(struct v2i Position, struct v2i Dimensions)
     return Result;
 }
 
-uint32_t RectangleContains(struct rect2i Rectangle, struct v2i Position)
+u32 RectangleContains(struct rect2i Rectangle, struct v2i Position)
 {
-    int32_t Left = Rectangle.Position.X;
-    int32_t Right = Rectangle.Position.X + Rectangle.Dimensions.Width;
-    int32_t Top = Rectangle.Position.Y;
-    int32_t Bottom = Rectangle.Position.Y + Rectangle.Dimensions.Height;
+    s32 Left = Rectangle.Position.X;
+    s32 Right = Rectangle.Position.X + Rectangle.Dimensions.Width;
+    s32 Top = Rectangle.Position.Y;
+    s32 Bottom = Rectangle.Position.Y + Rectangle.Dimensions.Height;
     return Left <= Position.X && Position.X < Right && Top <= Position.Y && Position.Y < Bottom;
 }
 
@@ -143,7 +175,7 @@ enum minesweeper_action
 };
 
 struct minesweeper_tile_state
-ExtractMinesweeperTileState(uint8_t Value)
+ExtractMinesweeperTileState(u8 Value)
 {
     struct minesweeper_tile_state Result;
     Result.NeighborCount = Value & 0x0F;
@@ -170,28 +202,28 @@ enum draw_flags
     draw_flags_Measure = 1 << 0,
 };
 
-struct rect2i DrawRectangle(struct backbuffer *Backbuffer, int32_t Stride, struct rect2i Rectangle, struct v4 Color, enum draw_flags Flags)
+struct rect2i DrawRectangle(struct backbuffer *Backbuffer, s32 Stride, struct rect2i Rectangle, struct v4 Color, enum draw_flags Flags)
 {
     struct v2i Dimensions = Rectangle.Dimensions;
     struct v2i Position = Rectangle.Position;
-    int32_t StartX = Max(0, Position.X);
-    int32_t StartY = Max(0, Position.Y);
-    int32_t StopX = Min(Position.X + (int32_t)Dimensions.Width, (int32_t)Backbuffer->Dimensions.Width);
-    int32_t StopY = Min(Position.Y + (int32_t)Dimensions.Height, (int32_t)Backbuffer->Dimensions.Height);
+    s32 StartX = Max(0, Position.X);
+    s32 StartY = Max(0, Position.Y);
+    s32 StopX = Min(Position.X + (s32)Dimensions.Width, (s32)Backbuffer->Dimensions.Width);
+    s32 StopY = Min(Position.Y + (s32)Dimensions.Height, (s32)Backbuffer->Dimensions.Height);
     struct rect2i Result = {Position, V2i(StopX - Position.X, StopY - Position.Y)};
     if (!(Flags & draw_flags_Measure))
     {
-        uint8_t *Row = Backbuffer->Memory + Stride * StartY + StartX * 4;
-        uint32_t PackedColor = 
-            ((uint8_t)(255.0f * Clamp(0.0f, Color.Red,   1.0f)) << 0)
-            | ((uint8_t)(255.0f * Clamp(0.0f, Color.Green, 1.0f)) << 8)
-            | ((uint8_t)(255.0f * Clamp(0.0f, Color.Blue,  1.0f)) << 16)
-            | ((uint8_t)(255.0f * Clamp(0.0f, Color.Alpha, 1.0f)) << 24);
+        u8 *Row = Backbuffer->Memory + Stride * StartY + StartX * 4;
+        u32 PackedColor = 
+            ((u8)(255.0f * Clamp(0.0f, Color.Red,   1.0f)) << 0)
+            | ((u8)(255.0f * Clamp(0.0f, Color.Green, 1.0f)) << 8)
+            | ((u8)(255.0f * Clamp(0.0f, Color.Blue,  1.0f)) << 16)
+            | ((u8)(255.0f * Clamp(0.0f, Color.Alpha, 1.0f)) << 24);
     
-        for (int32_t IndexY = StartY; IndexY < StopY; IndexY++)
+        for (s32 IndexY = StartY; IndexY < StopY; IndexY++)
         {
-            uint32_t *At = (uint32_t*)Row;
-            for (int32_t IndexX = StartX; IndexX < StopX; IndexX++)
+            u32 *At = (u32*)Row;
+            for (s32 IndexX = StartX; IndexX < StopX; IndexX++)
             {
                 *At++ = PackedColor;
             }
@@ -202,30 +234,30 @@ struct rect2i DrawRectangle(struct backbuffer *Backbuffer, int32_t Stride, struc
     return Result;
 }
 
-int32_t DrawBorder(struct backbuffer *Backbuffer, int32_t Stride, struct v2i Dimensions, int32_t BorderWidth, struct v2i Position, int32_t colorTopLeft, int32_t colorCenter, int32_t colorBottomRight)
+s32 DrawBorder(struct backbuffer *Backbuffer, s32 Stride, struct v2i Dimensions, s32 BorderWidth, struct v2i Position, s32 colorTopLeft, s32 colorCenter, s32 colorBottomRight)
 {
-    int32_t FullWidth = Dimensions.Width + 2*BorderWidth;
-    int32_t FullHeight = Dimensions.Height + 2*BorderWidth;
-    int32_t StartX = Max(0, Position.X);
-    int32_t StartY = Max(0, Position.Y);
-    int32_t StopTopY = Min(Position.Y + (int32_t)BorderWidth, (int32_t)Backbuffer->Dimensions.Height);
-    int32_t StopMidY = Min(Position.Y + (int32_t)BorderWidth + Dimensions.Height, (int32_t)Backbuffer->Dimensions.Height);
-    int32_t StopX = Min(Position.X + (int32_t)FullWidth, (int32_t)Backbuffer->Dimensions.Width);
-    int32_t StopY = Min(Position.Y + (int32_t)FullHeight, (int32_t)Backbuffer->Dimensions.Height);
-    int32_t StopLeftX = Min(Position.X + (int32_t)BorderWidth, (int32_t)Backbuffer->Dimensions.Width);
-    int32_t StartRightX = Max((int32_t)0, Position.X + BorderWidth + Dimensions.Width);
-    uint8_t *Row = Backbuffer->Memory + Stride * StartY + StartX * 4;
-    for (int32_t IndexY = StartY; IndexY < StopTopY; IndexY++) {
-        uint8_t *At = Row;
-        int32_t IndexX;
-        int32_t StopTopLeft = Min(Position.X + FullWidth - IndexY + StartY - 1, StopX);
+    s32 FullWidth = Dimensions.Width + 2*BorderWidth;
+    s32 FullHeight = Dimensions.Height + 2*BorderWidth;
+    s32 StartX = Max(0, Position.X);
+    s32 StartY = Max(0, Position.Y);
+    s32 StopTopY = Min(Position.Y + (s32)BorderWidth, (s32)Backbuffer->Dimensions.Height);
+    s32 StopMidY = Min(Position.Y + (s32)BorderWidth + Dimensions.Height, (s32)Backbuffer->Dimensions.Height);
+    s32 StopX = Min(Position.X + (s32)FullWidth, (s32)Backbuffer->Dimensions.Width);
+    s32 StopY = Min(Position.Y + (s32)FullHeight, (s32)Backbuffer->Dimensions.Height);
+    s32 StopLeftX = Min(Position.X + (s32)BorderWidth, (s32)Backbuffer->Dimensions.Width);
+    s32 StartRightX = Max((s32)0, Position.X + BorderWidth + Dimensions.Width);
+    u8 *Row = Backbuffer->Memory + Stride * StartY + StartX * 4;
+    for (s32 IndexY = StartY; IndexY < StopTopY; IndexY++) {
+        u8 *At = Row;
+        s32 IndexX;
+        s32 StopTopLeft = Min(Position.X + FullWidth - IndexY + StartY - 1, StopX);
         for (IndexX = StartX; IndexX < StopTopLeft; IndexX++) {
             *At++ = colorTopLeft;
             *At++ = colorTopLeft;
             *At++ = colorTopLeft;
             *At++ = 255;
         }
-        int32_t StopMid = Min(Position.X + FullWidth - IndexY + StartY, StopX);
+        s32 StopMid = Min(Position.X + FullWidth - IndexY + StartY, StopX);
         for (; IndexX < StopMid; IndexX++)
         {
             *At++ = colorCenter;
@@ -241,9 +273,9 @@ int32_t DrawBorder(struct backbuffer *Backbuffer, int32_t Stride, struct v2i Dim
         }
         Row += Stride;
     }
-    for (int32_t IndexY = Max(0, Position.Y + BorderWidth); IndexY < StopMidY; IndexY++) {
-        uint8_t *At = Row;
-        int32_t IndexX;
+    for (s32 IndexY = Max(0, Position.Y + BorderWidth); IndexY < StopMidY; IndexY++) {
+        u8 *At = Row;
+        s32 IndexX;
         for (IndexX = StartX; IndexX < StopLeftX; IndexX++) {
             *At++ = colorTopLeft;
             *At++ = colorTopLeft;
@@ -260,17 +292,17 @@ int32_t DrawBorder(struct backbuffer *Backbuffer, int32_t Stride, struct v2i Dim
         Row += Stride;
     }
     StartY = Max(0, Position.Y + BorderWidth + Dimensions.Height);
-    for (int32_t IndexY = StartY; IndexY < StopY; IndexY++) {
-        uint8_t *At = Row;
-        int32_t IndexX;
-        int32_t StopBottomLeft = Min(Position.X + BorderWidth - IndexY + StartY - 1, StopX);
+    for (s32 IndexY = StartY; IndexY < StopY; IndexY++) {
+        u8 *At = Row;
+        s32 IndexX;
+        s32 StopBottomLeft = Min(Position.X + BorderWidth - IndexY + StartY - 1, StopX);
         for (IndexX = StartX; IndexX < StopBottomLeft; IndexX++) {
             *At++ = colorTopLeft;
             *At++ = colorTopLeft;
             *At++ = colorTopLeft;
             *At++ = 255;
         }
-        int32_t StopMid = Min(Position.X + BorderWidth - IndexY + StartY, StopX);
+        s32 StopMid = Min(Position.X + BorderWidth - IndexY + StartY, StopX);
         for (; IndexX < StopMid; IndexX++)
         {
             *At++ = colorCenter;
@@ -289,77 +321,23 @@ int32_t DrawBorder(struct backbuffer *Backbuffer, int32_t Stride, struct v2i Dim
     return BorderWidth;
 }
 
-enum smiley_state
+void DrawBitmap(struct backbuffer *Backbuffer, s32 Stride, struct v2i Position, struct bitmap Bitmap)
 {
-    smiley_state_Normal,
-    smiley_state_Surprised,
-    smiley_state_Frowney,
-    smiley_state_Cool,
-};
-
-void DrawSmiley(struct backbuffer *Backbuffer, struct v2i Position, enum smiley_state State)
-{
-    int32_t Stride = Backbuffer->Dimensions.Width * 4;
-    uint8_t *DestRow = Backbuffer->Memory + Position.Y * Stride + Position.X * 4;
-    uint8_t *SourceRow;
-    switch (State)
-    {
-    case smiley_state_Surprised:
-    {
-        SourceRow = SurprisedBitmap;
-    } break;
-    case smiley_state_Cool:
-    {
-        SourceRow = CoolBitmap;
-    } break;
-    case smiley_state_Frowney:
-    {
-        SourceRow = FrowneyBitmap;
-    } break;
-    case smiley_state_Normal:
-    default:
-    {
-        SourceRow = SmileyBitmap;
-    } break;
-    }
-    int32_t StartY = Max(0, Position.Y);
-    int32_t StartX = Max(0, Position.X);
-    int32_t StopY = Min(Position.Y + SmileyDimensions.Height, Backbuffer->Dimensions.Height);
-    int32_t StopX = Min(Position.X + SmileyDimensions.Width, Backbuffer->Dimensions.Width);
-    for (int32_t IndexY = StartY; IndexY < StopY; IndexY++)
-    {
-        uint32_t *Dest = (uint32_t*)DestRow;
-        uint8_t *Source = SourceRow;
-        for (int32_t IndexX = StartX; IndexX < StopX; IndexX++)
-        {
-            uint32_t Color = SmileyColors[*Source++];
-            if (Color)
-            {
-                *Dest = Color;
-            }
-            Dest++;;
-        }
-        DestRow += Stride;
-        SourceRow += SmileyDimensions.Height;
-    }
-}
-
-void DrawBitmap(struct backbuffer *Backbuffer, int32_t Stride, struct v2i Position, struct bitmap Bitmap)
-{
-    uint8_t *DestRow = Backbuffer->Memory + Position.Y * Stride + Position.X * 4;
     char *SourceRow = Bitmap.Bitmap;
-    int32_t StartY = Max(0, Position.Y);
-    int32_t StartX = Max(0, Position.X);
-    int32_t StopY = Min(Position.Y + Bitmap.Dimensions.Height, Backbuffer->Dimensions.Height);
-    int32_t StopX = Min(Position.X + Bitmap.Dimensions.Width, Backbuffer->Dimensions.Width);
-    for (int32_t IndexY = StartY; IndexY < StopY; IndexY++)
+    s32 StartY = Max(0, Position.Y);
+    s32 StartX = Max(0, Position.X);
+    s32 StopY = Min(Position.Y + Bitmap.Dimensions.Height, Backbuffer->Dimensions.Height);
+    s32 StopX = Min(Position.X + Bitmap.Dimensions.Width, Backbuffer->Dimensions.Width);
+    u8 *DestRow = Backbuffer->Memory + StartY * Stride + StartX * 4;
+    SourceRow += (StartY - Position.Y) * Bitmap.Dimensions.Width + StartX - Position.X;
+    for (s32 IndexY = StartY; IndexY < StopY; IndexY++)
     {
-        uint32_t *Dest = (uint32_t*)DestRow;
+        u32 *Dest = (u32*)DestRow;
         char *Source = SourceRow;
-        for (int32_t IndexX = StartX; IndexX < StopX; IndexX++)
+        for (s32 IndexX = StartX; IndexX < StopX; IndexX++)
         {
-            int32_t ColorIndex = *Source++ - '0';
-            uint32_t Color = 0;
+            s32 ColorIndex = *Source++ - '0';
+            u32 Color = 0;
             if (0 <= ColorIndex && ColorIndex < Bitmap.ColorCount)
             {
                 Color = Bitmap.Colors[ColorIndex];
@@ -375,55 +353,69 @@ void DrawBitmap(struct backbuffer *Backbuffer, int32_t Stride, struct v2i Positi
     }
 }
 
-void DrawNumber(struct backbuffer *Backbuffer, struct v2i Position, int32_t Number)
+enum smiley_state
 {
-    int32_t Stride = Backbuffer->Dimensions.Width * 4;
+    smiley_state_Normal,
+    smiley_state_Surprised,
+    smiley_state_Frowney,
+    smiley_state_Cool,
+};
+
+void DrawSmiley(struct backbuffer *Backbuffer, struct v2i Position, enum smiley_state State)
+{
+    s32 Stride = Backbuffer->Dimensions.Width * 4;
+    struct bitmap Bitmap;
+    switch (State)
+    {
+    case smiley_state_Surprised:
+    {
+        Bitmap = SurprisedBitmap;
+    } break;
+    case smiley_state_Cool:
+    {
+        Bitmap = CoolBitmap;
+    } break;
+    case smiley_state_Frowney:
+    {
+        Bitmap = FrowneyBitmap;
+    } break;
+    case smiley_state_Normal:
+    default:
+    {
+        Bitmap = SmileyBitmap;
+    } break;
+    }
+    DrawBitmap(Backbuffer, Stride, Position, Bitmap);
+}
+
+void DrawNumber(struct backbuffer *Backbuffer, struct v2i Position, s32 Number)
+{
+    s32 Stride = Backbuffer->Dimensions.Width * 4;
     
     Number = Clamp(0, Number, 999);
-    int32_t RemainingDigits = 3;
-    int32_t Digits[3];
+    s32 RemainingDigits = 3;
+    s32 Digits[3];
     while (RemainingDigits--)
     {
         Digits[RemainingDigits] = Number % 10;
         Number = Number / 10;
     }
     RemainingDigits = 3;
-    int32_t *AtDigit = Digits;
+    s32 *AtDigit = Digits;
     while (RemainingDigits--)
     {
-        uint8_t *DestRow = Backbuffer->Memory + Position.Y * Stride + Position.X * 4;
-        int32_t Digit = *AtDigit++;
-        char *SourceRow = NumberBlank;
-        if (0 <= Digit && Digit < ArrayCount(NumberBitmaps))
+        s32 Digit = *AtDigit++;
+        struct bitmap Bitmap = SevenSegmentBitmapBlank;
+        if (0 <= Digit && Digit < ArrayCount(SevenSegmentBitmaps))
         {
-            SourceRow = NumberBitmaps[Digit];
+            Bitmap = SevenSegmentBitmaps[Digit];
         }
-        int32_t StartY = Max(0, Position.Y);
-        int32_t StartX = Max(0, Position.X);
-        int32_t StopY = Min(Position.Y + NumberDimensions.Height, Backbuffer->Dimensions.Height);
-        int32_t StopX = Min(Position.X + NumberDimensions.Width, Backbuffer->Dimensions.Width);
-        for (int32_t IndexY = StartY; IndexY < StopY; IndexY++)
-        {
-            uint32_t *Dest = (uint32_t*)DestRow;
-            char *Source = SourceRow;
-            for (int32_t IndexX = StartX; IndexX < StopX; IndexX++)
-            {
-                uint32_t Color = NumberColors[*Source++ - '0'];
-                if (Color)
-                {
-                    *Dest = Color;
-                }
-                Dest++;
-            }
-            DestRow += Stride;
-            SourceRow += NumberDimensions.Width;
-        }
-
-        Position.X += NumberDimensions.X;
+        DrawBitmap(Backbuffer, Stride, Position, Bitmap);
+        Position.X += Bitmap.Dimensions.X;
     }
 }
 
-struct rect2i DrawTile(struct backbuffer *Backbuffer, int32_t Stride, int32_t Width, int32_t BorderWidth, struct v2i Position, struct minesweeper_tile_state State)
+struct rect2i DrawTile(struct backbuffer *Backbuffer, s32 Stride, s32 Width, s32 BorderWidth, struct v2i Position, struct minesweeper_tile_state State)
 {
     struct rect2i Result = {Position, {Width + BorderWidth + BorderWidth, Width + BorderWidth + BorderWidth}};
     struct v4 GrayVector = {(float)Gray/255.0f, (float)Gray/255.0f, (float)Gray/255.0f, 1.0f};
@@ -461,23 +453,8 @@ struct rect2i DrawTile(struct backbuffer *Backbuffer, int32_t Stride, int32_t Wi
 
 float Fmod(float a, float b) {
     float q = a / b;
-    return q - (uint32_t)q;
+    return q - (u32)q;
 }
-
-#pragma pack(push, 1)
-struct image_header
-{
-    int32_t Width;
-    int32_t Height;
-};
-
-struct platform_state
-{
-    struct v2i MousePosition;
-    struct game_button LeftMouseButton;
-    struct game_button RightMouseButton;
-};
-#pragma pack(pop)
 
 #define MAX_FIELD_WIDTH 30
 #define MAX_FIELD_HEIGHT 24
@@ -489,31 +466,138 @@ enum minesweeper_gameplay_state
     minesweeper_gameplay_state_GameOver,
 };
 
+struct seed
+Seed(u64 Value)
+{
+    struct seed Result;
+    Result.Value = Value;
+    return(Result);
+}
+
+u64
+RandomU64(struct seed *Seed)
+{
+    u64 Result = 6364136223846793005ull*Seed->Value+1442695040888963407ull;
+    Seed->Value = Result;
+    return(Result);
+}
+
+u32
+RandomIndex(struct seed *Seed, u32 Count)
+{
+    s32 Result = RandomU64(Seed)%Count;
+    return(Result);
+}
+
 struct game_state
 {
-    uint32_t Initialized;
+    u32 Initialized;
     enum minesweeper_gameplay_state GameplayState;
-    uint32_t BoardDimensionsChoice;
+    struct v2i DesiredFieldDimensions;
+    struct seed MineSeed;
+    s32 DesiredMineCount;
+    struct v2i FieldDimensions;
     float GameStart;
     struct v2i WindowPosition;
     struct v2i DragOffset;
     struct v2i *DragTarget;
-    int32_t FlagsRemaining;
-    uint8_t Field[MAX_FIELD_HEIGHT+2][MAX_FIELD_WIDTH+2];
+    s32 FlagsRemaining;
+    u8 Field[MAX_FIELD_HEIGHT+2][MAX_FIELD_WIDTH+2];
 };
 
-void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, uint8_t *BackbufferMemory, uint8_t *AssetsMemory, size_t GameMemorySize, uint8_t *GameMemory)
+struct v2i
+V2iPlusV2i(struct v2i A, struct v2i B)
 {
-    struct platform_state *PlatformState = (struct platform_state*)GameMemory;
-    struct game_state *GameState = (struct game_state*)(PlatformState + 1);
+    struct v2i Result = {A.X + B.X, A.Y + B.Y};
+    return Result;
+}
 
-    struct v2i MousePosition = PlatformState->MousePosition;
+void *
+SetMemory(void *Ptr, int Value, size_t ByteCount)
+{
+    unsigned char * At = (unsigned char*)Ptr;
+    while(ByteCount--)
+    {
+        *At++ = (unsigned char)Value;
+    }
+    return Ptr;
+}
 
-    int32_t LeftMouseEndedDown = PlatformState->LeftMouseButton.EndedDown;
-    int32_t LeftMouseHalfTransitionCount = PlatformState->LeftMouseButton.HalfTransitionCount;
+void
+Reset(struct game_state *State)
+{
+    State->GameplayState = minesweeper_gameplay_state_Playing;
+    State->FieldDimensions = State->DesiredFieldDimensions;
+    SetMemory(State->Field, 0, sizeof(State->Field));
+    struct v2i Apron = V2i(1, 1);
+    u8 Revealed0 = 0b11000000;
+    u8 Mine = 0b00010000;
+    struct v2i FieldDimensionsWithHalfApron = V2iPlusV2i(State->FieldDimensions, Apron);
+    for (s32 Index = 0; Index < FieldDimensionsWithHalfApron.X; ++Index)
+    {
+        State->Field[0][Index] = Revealed0;
+        State->Field[FieldDimensionsWithHalfApron.Y][Index+1] = Revealed0;
+    }
+    for (s32 Index = 0; Index < FieldDimensionsWithHalfApron.Y; ++Index)
+    {
+        State->Field[Index][FieldDimensionsWithHalfApron.X] = Revealed0;
+        State->Field[Index+1][0] = Revealed0;
+    }
 
-    int32_t RightMouseEndedDown = PlatformState->RightMouseButton.EndedDown;
-    int32_t RightMouseHalfTransitionCount = PlatformState->RightMouseButton.HalfTransitionCount;
+    struct v2i Coordinate;
+    struct v2i FieldEnd = V2iPlusV2i(State->FieldDimensions, Apron);
+    struct v2i CoordinatePool[MAX_FIELD_WIDTH*MAX_FIELD_HEIGHT];
+    s32 CoordinateCount = 0;
+    for (Coordinate.Y = Apron.Y; Coordinate.Y < FieldEnd.Y; ++Coordinate.Y)
+    {
+        for (Coordinate.X = Apron.X; Coordinate.X < FieldEnd.X; ++Coordinate.X)
+        {
+            CoordinatePool[CoordinateCount++] = Coordinate;
+        }
+    }
+    Assert(CoordinateCount == State->FieldDimensions.X * State->FieldDimensions.Y);
+
+    s32 MinesRemaining = State->DesiredMineCount;
+
+    while (MinesRemaining--)
+    {
+        u32 Index = RandomIndex(&State->MineSeed, CoordinateCount);
+        Coordinate = CoordinatePool[Index];
+        CoordinatePool[Index] = CoordinatePool[--CoordinateCount];
+        State->Field[Coordinate.Y][Coordinate.X] = Mine;
+    }
+
+    for (Coordinate.Y = Apron.Y; Coordinate.Y < FieldEnd.Y; ++Coordinate.Y)
+    {
+        for (Coordinate.X = Apron.X; Coordinate.X < FieldEnd.X; ++Coordinate.X)
+        {
+            u8 NWMine = ExtractMinesweeperTileState(State->Field[Coordinate.Y-1][Coordinate.X-1]).IsMine;
+            u8 NNMine = ExtractMinesweeperTileState(State->Field[Coordinate.Y-1][Coordinate.X+0]).IsMine;
+            u8 NEMine = ExtractMinesweeperTileState(State->Field[Coordinate.Y-1][Coordinate.X+1]).IsMine;
+            u8 WWMine = ExtractMinesweeperTileState(State->Field[Coordinate.Y+0][Coordinate.X-1]).IsMine;
+            u8 EEMine = ExtractMinesweeperTileState(State->Field[Coordinate.Y+0][Coordinate.X+1]).IsMine;
+            u8 SWMine = ExtractMinesweeperTileState(State->Field[Coordinate.Y+1][Coordinate.X-1]).IsMine;
+            u8 SSMine = ExtractMinesweeperTileState(State->Field[Coordinate.Y+1][Coordinate.X+0]).IsMine;
+            u8 SEMine = ExtractMinesweeperTileState(State->Field[Coordinate.Y+1][Coordinate.X+1]).IsMine;
+            u8 NeighboringMines = NWMine + NNMine + NEMine + WWMine + EEMine + SWMine + SSMine + SEMine;
+            State->Field[Coordinate.Y][Coordinate.X] |= (NeighboringMines & 0x0F);
+        }
+    }
+}
+
+void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *AssetsMemory, size_t GameMemorySize, u8 *GameMemory)
+{
+    struct game_input *GameInput = (struct game_input*)GameMemory;
+    struct game_state *GameState = (struct game_state*)(GameInput + 1);
+    float ElapsedSeconds = GameInput->ElapsedSeconds;
+
+    struct v2i MousePosition = GameInput->MousePosition;
+
+    s32 LeftMouseEndedDown = GameInput->LeftMouseButton.EndedDown;
+    s32 LeftMouseHalfTransitionCount = GameInput->LeftMouseButton.HalfTransitionCount;
+
+    s32 RightMouseEndedDown = GameInput->RightMouseButton.EndedDown;
+    s32 RightMouseHalfTransitionCount = GameInput->RightMouseButton.HalfTransitionCount;
 
     struct backbuffer _Backbuffer;
     _Backbuffer.Dimensions.Width = Width;
@@ -533,10 +617,14 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     if (!GameState->Initialized)
     {
         GameState->Initialized = 1;
+        GameState->MineSeed = Seed(GameInput->SeedValue);
         GameState->WindowPosition.X = 100;
         GameState->WindowPosition.Y = 100;
         GameState->FlagsRemaining = 10;
         GameState->GameStart = ElapsedSeconds;
+        GameState->DesiredFieldDimensions = Beginner;
+        GameState->DesiredMineCount = 10;
+        Reset(GameState);
     }
 
     if (GameState->DragTarget)
@@ -553,7 +641,7 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     }
     
     struct image_header *Header = (struct image_header *)AssetsMemory;
-    int32_t DestStride = Width*4;
+    s32 DestStride = Width*4;
 
     float VMultiplier = 1.0f / (float)Height;
     float UMultiplier = 1.0f / (float)Width;
@@ -573,16 +661,16 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
 
     if (Header->Width && Header->Height)
     {
-        uint8_t *DestRow = BackbufferMemory;
-        uint8_t *Background = AssetsMemory + sizeof(*Header);
-        for (int32_t y = 0; y < Height; ++y) {
+        u8 *DestRow = BackbufferMemory;
+        u8 *Background = AssetsMemory + sizeof(*Header);
+        for (s32 y = 0; y < Height; ++y) {
             float V = ((float)y + 0.5f) * VMultiplier + VOffset;
-            uint8_t *Dest = DestRow;
-            for (int32_t x = 0; x < Width; ++x) {
+            u8 *Dest = DestRow;
+            for (s32 x = 0; x < Width; ++x) {
                 float U = ((float)x + 0.5f) * UMultiplier + UOffset;
-                uint32_t SourceX = (uint32_t)(U * Header->Width);
-                uint32_t SourceY = (uint32_t)(V * Header->Height);
-                uint8_t *Source = Background + (SourceY * Header->Width + SourceX) * 3;
+                u32 SourceX = (u32)(U * Header->Width);
+                u32 SourceY = (u32)(V * Header->Height);
+                u8 *Source = Background + (SourceY * Header->Width + SourceX) * 3;
 #if 1
                 *Dest++ = *Source++;
                 *Dest++ = *Source++;
@@ -594,9 +682,9 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
                 *Dest++ = roundf(127.5 * (1 - cosf(ElapsedSeconds + Pi * (1 - (float)x / (float)Width))));
 #endif
 #if 0
-                *Dest++ = (uint8_t)(255.0f * (ElapsedSeconds + Fmod(x, (float)Width) + 0.5f));
-                *Dest++ = (uint8_t)(255.0f * (ElapsedSeconds - Fmod(y, (float)Height) + 0.5f));
-                *Dest++ = (uint8_t)(255.0f * (ElapsedSeconds - Fmod(x, (float)Width) + 0.5f));
+                *Dest++ = (u8)(255.0f * (ElapsedSeconds + Fmod(x, (float)Width) + 0.5f));
+                *Dest++ = (u8)(255.0f * (ElapsedSeconds - Fmod(y, (float)Height) + 0.5f));
+                *Dest++ = (u8)(255.0f * (ElapsedSeconds - Fmod(x, (float)Width) + 0.5f));
 #endif
                 *Dest++ = 0xFF;
             }
@@ -609,15 +697,11 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     }
     
     
-    int32_t borderWidth = 2;
-    int32_t innerWidth = 12;
-    int32_t SquareWidth = innerWidth + 2*borderWidth;
-    struct v2i BoardDimensions = Beginner;
-    if (0 <= GameState->BoardDimensionsChoice && GameState->BoardDimensionsChoice < ArrayCount(BoardDimensionsOptions))
-    {
-        BoardDimensions = BoardDimensionsOptions[GameState->BoardDimensionsChoice];
-    }
-    struct v2i GameDimensionsInPixels = {SquareWidth * BoardDimensions.Width + 6, SquareWidth * BoardDimensions.Height + 6};
+    s32 borderWidth = 2;
+    s32 innerWidth = 12;
+    s32 SquareWidth = innerWidth + 2*borderWidth;
+    struct v2i FieldDimensions = GameState->FieldDimensions;
+    struct v2i GameDimensionsInPixels = {SquareWidth * FieldDimensions.Width + 6, SquareWidth * FieldDimensions.Height + 6};
     struct v2i GameBackgroundDimensions = {GameDimensionsInPixels.Width + 12, GameDimensionsInPixels.Height + 12 + 43};
     struct v2i Position = GameState->WindowPosition;
     struct rect2i TitleBarRectangle;
@@ -628,7 +712,7 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     struct v4 TitleBarColor = { 0.0f, 0.0f, 1.0f, 1.0f };
     struct v4 SeparatorColor = {0, 0, 0, 1};
     struct v4 MenuBarColor = {1, 1, 1, 1};
-    int32_t Indent = DrawBorder(Backbuffer, DestStride, V2i(GameBackgroundDimensions.Width + 6, GameBackgroundDimensions.Height + 6 + TitleBarRectangle.Dimensions.Height * 2 + SeparatorRectangle.Dimensions.Height * 2), 1, Position, Black, Black, Black);
+    s32 Indent = DrawBorder(Backbuffer, DestStride, V2i(GameBackgroundDimensions.Width + 6, GameBackgroundDimensions.Height + 6 + TitleBarRectangle.Dimensions.Height * 2 + SeparatorRectangle.Dimensions.Height * 2), 1, Position, Black, Black, Black);
 #if 1
     Position.X += Indent;
     Position.Y += Indent;
@@ -661,7 +745,7 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     DrawRectangle(Backbuffer, DestStride, GameBackgroundRectangle, GrayVector, draw_flags_None);
     Position.X += 6;
     Position.Y += 6;
-    int32_t ScoreBackgroundWidth = GameBackgroundDimensions.Width - 16;
+    s32 ScoreBackgroundWidth = GameBackgroundDimensions.Width - 16;
     Indent = DrawBorder(Backbuffer, DestStride, V2i(ScoreBackgroundWidth, 33), 2, Position, DarkGray, Gray, White);
     struct v2i ScoreOrigin = {Position.X + Indent, Position.Y + Indent};
     struct v2i ScorePosition = {ScoreOrigin.X + 5, ScoreOrigin.Y + 4};
@@ -671,14 +755,14 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     ScorePosition.X += Indent;
     ScorePosition.Y += Indent;
     DrawRectangle(Backbuffer, DestStride, Rect2i(ScorePosition, ScoreDimensions), ScoreBackgroundColor, draw_flags_None);
-    int32_t GameTimer = (int32_t)(ElapsedSeconds - GameState->GameStart);
+    s32 GameTimer = (s32)(ElapsedSeconds - GameState->GameStart);
     DrawNumber(Backbuffer, ScorePosition, GameState->FlagsRemaining);
 
-    int32_t SmileyBorderWidthOuter = 1;
-    int32_t SmileyBorderWidthInner = 2;
+    s32 SmileyBorderWidthOuter = 1;
+    s32 SmileyBorderWidthInner = 2;
     struct v2i SmileyDimensionsInner = V2i(20, 20);
     struct v2i SmileyDimensionsOuter = V2i(SmileyDimensionsInner.X + SmileyBorderWidthInner*2, SmileyDimensionsInner.Y + SmileyBorderWidthInner*2);
-    int32_t SmileyWidth = SmileyDimensionsOuter.X + SmileyBorderWidthOuter*2;
+    s32 SmileyWidth = SmileyDimensionsOuter.X + SmileyBorderWidthOuter*2;
     ScorePosition = V2i(ScoreOrigin.X + (ScoreBackgroundWidth - SmileyWidth) / 2, ScoreOrigin.Y + 4);
     Indent = DrawBorder(Backbuffer, DestStride, SmileyDimensionsOuter, SmileyBorderWidthOuter, ScorePosition, DarkGray, Gray, DarkGray);
     ScorePosition.X += Indent;
@@ -693,22 +777,22 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
     DrawRectangle(Backbuffer, DestStride, Rect2i(ScorePosition, ScoreDimensions), ScoreBackgroundColor, draw_flags_None);
     DrawNumber(Backbuffer, ScorePosition, GameTimer);
     Position.Y += 33 + 4 + 6;
-    Indent = DrawBorder(Backbuffer, DestStride, V2i(SquareWidth * BoardDimensions.Width, SquareWidth * BoardDimensions.Height), 3, Position, DarkGray, Gray, White);
+    Indent = DrawBorder(Backbuffer, DestStride, V2i(SquareWidth * FieldDimensions.Width, SquareWidth * FieldDimensions.Height), 3, Position, DarkGray, Gray, White);
     Position.X += Indent;
     Position.Y += Indent;
 
-    int32_t LeftReleaseCount = (LeftMouseHalfTransitionCount + !LeftMouseEndedDown) / 2;
-    int32_t RightReleaseCount = (RightMouseHalfTransitionCount + !RightMouseEndedDown) / 2;
+    s32 LeftReleaseCount = (LeftMouseHalfTransitionCount + !LeftMouseEndedDown) / 2;
+    s32 RightReleaseCount = (RightMouseHalfTransitionCount + !RightMouseEndedDown) / 2;
 
     enum smiley_state SmileyState = smiley_state_Normal;
-    for (int32_t j = 0; j < BoardDimensions.Height; ++j) {
-        for (int32_t i = 0; i < BoardDimensions.Width; ++i) {
+    for (s32 j = 0; j < FieldDimensions.Height; ++j) {
+        for (s32 i = 0; i < FieldDimensions.Width; ++i) {
             struct v2i FieldCoordinate = {i+1, j+1};
-            uint8_t TileValue = GameState->Field[FieldCoordinate.Y][FieldCoordinate.X];
+            u8 TileValue = GameState->Field[FieldCoordinate.Y][FieldCoordinate.X];
             struct minesweeper_tile_state TileState = ExtractMinesweeperTileState(TileValue);
             struct v2i TilePosition = {Position.X + i * SquareWidth, Position.Y + j * SquareWidth};
             struct rect2i TileRectangle = {TilePosition, {innerWidth + borderWidth + borderWidth, innerWidth + borderWidth + borderWidth}};
-            int32_t Hover = RectangleContains(TileRectangle, MousePosition);
+            s32 Hover = RectangleContains(TileRectangle, MousePosition);
             if (TileState.UserState != tile_user_state_Revealed && Hover)
             {
                 if (LeftReleaseCount)
@@ -722,9 +806,7 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
                     }
                     else
                     {
-                        logu64(TileState.UserState);
                         TileState.UserState = tile_user_state_Revealed;
-                        logu64(TileState.UserState);
 //                        FloodFill(State, &TranState->Arena, FieldCoordinate);
                     }
                 }
@@ -757,7 +839,6 @@ void GameUpdateAndRender(float ElapsedSeconds, int32_t Width, int32_t Height, ui
                         TileState.IsDepressed = 1;
                     }
                 }
-//                GameState->BoardDimensionsChoice = (GameState->BoardDimensionsChoice + RightReleaseCount) % ArrayCount(BoardDimensionsOptions);
             }
             GameState->Field[FieldCoordinate.Y][FieldCoordinate.X] = CompressMinesweeperTileState(TileState);
 

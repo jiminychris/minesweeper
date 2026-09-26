@@ -71,14 +71,16 @@ class Game {
         this.canvas.style.width = `${this.window.innerWidth}px`;
         this.canvas.style.height = `${this.window.innerHeight}px`;
 
-        this.gameMemoryView.setInt32(0, this.mouseX, true);
-        this.gameMemoryView.setInt32(4, this.mouseY, true);
-        this.gameMemoryView.setUint32(8, this.leftMouseButton.endedDown, true);
-        this.gameMemoryView.setUint32(12, this.leftMouseButton.halfTransitionCount, true);
-        this.gameMemoryView.setUint32(16, this.rightMouseButton.endedDown, true);
-        this.gameMemoryView.setUint32(20, this.rightMouseButton.halfTransitionCount, true);
+        this.gameMemoryView.setFloat32(0, elapsedSeconds, true);
+        this.gameMemoryView.setBigUint64(4, this.seedValue, true);
+        this.gameMemoryView.setInt32(12, this.mouseX, true);
+        this.gameMemoryView.setInt32(16, this.mouseY, true);
+        this.gameMemoryView.setInt32(20, this.leftMouseButton.endedDown, true);
+        this.gameMemoryView.setInt32(24, this.leftMouseButton.halfTransitionCount, true);
+        this.gameMemoryView.setInt32(28, this.rightMouseButton.endedDown, true);
+        this.gameMemoryView.setInt32(32, this.rightMouseButton.halfTransitionCount, true);
 
-        this.instance.exports.GameUpdateAndRender(elapsedSeconds, this.canvas.width, this.canvas.height, this.heap.byteOffset, this.assetsMemory.byteOffset, this.gameMemory.length, this.gameMemory.byteOffset);
+        this.instance.exports.GameUpdateAndRender(this.canvas.width, this.canvas.height, this.heap.byteOffset, this.assetsMemory.byteOffset, this.gameMemory.length, this.gameMemory.byteOffset);
         this.leftMouseButton.halfTransitionCount = 0;
         this.rightMouseButton.halfTransitionCount = 0;
 
@@ -98,7 +100,9 @@ async function main() {
     game.canvas = document.getElementById('canvas');
     game.ctx = game.canvas.getContext('2d');
     game.window = window;
-    game.startSeconds = Date.now() * MILLI;
+    game.startMilliseconds = Date.now();
+    game.seedValue = BigInt(game.startMilliseconds);
+    game.startSeconds = game.startMilliseconds * MILLI;
 
     const stackSize = 64*1024;
     const heapSize = 1024*1024*1024;
