@@ -11,6 +11,8 @@ typedef int16_t s16;
 typedef int32_t s32;
 typedef int64_t s64;
 
+typedef int32_t b32;
+
 #define White 255
 #define Gray 192
 #define DarkGray 128
@@ -39,6 +41,7 @@ typedef int64_t s64;
 
 extern void logu64(u64);
 
+#include "memory.h"
 
 #pragma pack(push, 1)
 struct v2i
@@ -112,6 +115,20 @@ struct v4
         };
     };
 };
+
+struct v4
+V4(float X, float Y, float Z, float W)
+{
+    struct v4 Result = {X, Y, Z, W};
+    return Result;
+}
+
+s32
+V2iEquals(struct v2i A, struct v2i B)
+{
+    s32 Result = A.X == B.X && A.Y == B.Y;
+    return Result;
+}
 
 struct backbuffer
 {
@@ -388,67 +405,40 @@ void DrawSmiley(struct backbuffer *Backbuffer, struct v2i Position, enum smiley_
     DrawBitmap(Backbuffer, Stride, Position, Bitmap);
 }
 
-void DrawNumber(struct backbuffer *Backbuffer, struct v2i Position, s32 Number)
+void DrawSevenSegment(struct backbuffer *Backbuffer, struct v2i Position, s32 Number)
 {
     s32 Stride = Backbuffer->Dimensions.Width * 4;
     
-    Number = Clamp(0, Number, 999);
+    Number = Clamp(-99, Number, 999);
     s32 RemainingDigits = 3;
-    s32 Digits[3];
-    while (RemainingDigits--)
+    struct bitmap Bitmaps[3];
+    s32 Negative = Number < 0;
+    if (Negative)
     {
-        Digits[RemainingDigits] = Number % 10;
+        Number *= -1;
+    }
+
+    do
+    {
+        Bitmaps[--RemainingDigits] = SevenSegmentBitmaps[Number % 10];
         Number = Number / 10;
+    } while (Number);
+    if (Negative)
+    {
+        Bitmaps[--RemainingDigits] = SevenSegmentBitmapMinus;
+    }
+    while (RemainingDigits)
+    {
+        Bitmaps[--RemainingDigits] = SevenSegmentBitmapBlank;
     }
     RemainingDigits = 3;
-    s32 *AtDigit = Digits;
+    struct bitmap *Bitmap = Bitmaps;
     while (RemainingDigits--)
     {
-        s32 Digit = *AtDigit++;
-        struct bitmap Bitmap = SevenSegmentBitmapBlank;
-        if (0 <= Digit && Digit < ArrayCount(SevenSegmentBitmaps))
-        {
-            Bitmap = SevenSegmentBitmaps[Digit];
-        }
-        DrawBitmap(Backbuffer, Stride, Position, Bitmap);
-        Position.X += Bitmap.Dimensions.X;
+        DrawBitmap(Backbuffer, Stride, Position, *Bitmap);
+        Position.X += Bitmap->Dimensions.X;
+        Bitmap++;
     }
-}
-
-struct rect2i DrawTile(struct backbuffer *Backbuffer, s32 Stride, s32 Width, s32 BorderWidth, struct v2i Position, struct minesweeper_tile_state State)
-{
-    struct rect2i Result = {Position, {Width + BorderWidth + BorderWidth, Width + BorderWidth + BorderWidth}};
-    struct v4 GrayVector = {(float)Gray/255.0f, (float)Gray/255.0f, (float)Gray/255.0f, 1.0f};
-    if (State.IsDepressed || State.UserState == tile_user_state_Revealed)
-    {
-        struct rect2i Rectangle;
-        Rectangle.Dimensions.Width = Rectangle.Dimensions.Height = Result.Dimensions.Width - 2;
-        Rectangle.Position.X = Position.X + 1;
-        Rectangle.Position.Y = Position.Y + 1;
-        DrawBorder(Backbuffer, Stride, Rectangle.Dimensions, 1, Position, DarkGray, DarkGray, DarkGray);
-        Rectangle.Dimensions.Width = Rectangle.Dimensions.Height = Rectangle.Dimensions.Width + 1;
-        DrawRectangle(Backbuffer, Stride, Rectangle, GrayVector, draw_flags_None);
-    }
-    else
-    {
-        struct rect2i Rectangle;
-        Rectangle.Dimensions.Width = Rectangle.Dimensions.Height = Width;
-        Rectangle.Position.X = Position.X + BorderWidth;
-        Rectangle.Position.Y = Position.Y + BorderWidth;
-        DrawBorder(Backbuffer, Stride, Rectangle.Dimensions, BorderWidth, Position, White, Gray, DarkGray);
-        DrawRectangle(Backbuffer, Stride, Rectangle, GrayVector, draw_flags_None);
-
-        if (State.UserState == tile_user_state_Flagged)
-        {
-            DrawBitmap(Backbuffer, Stride, Rectangle.Position, FlagBitmap);
-        }
-        else if (State.UserState == tile_user_state_QuestionMarked)
-        {
-            DrawBitmap(Backbuffer, Stride, Rectangle.Position, QuestionMarkBitmap);
-        }
-    }
-
-    return Result;
 }
 
 float Fmod(float a, float b) {
@@ -493,6 +483,8 @@ struct game_state
 {
     u32 Initialized;
     enum minesweeper_gameplay_state GameplayState;
+    float GameEnd;
+    struct v2i TriggeredCoordinate;
     struct v2i DesiredFieldDimensions;
     struct seed MineSeed;
     s32 DesiredMineCount;
@@ -524,8 +516,45 @@ SetMemory(void *Ptr, int Value, size_t ByteCount)
 }
 
 void
-Reset(struct game_state *State)
+FloodFill(struct game_state *State, struct memory_arena *Arena, struct v2i Coordinate)
 {
+    struct temporary_memory StackMemory = BeginTemporaryMemory(Arena);
+
+    u32 StackSize = 1;
+    struct v2i *Stack = PushStruct(StackMemory.Arena, struct v2i, 0);
+    *Stack = Coordinate;
+
+    while (StackSize)
+    {
+        Coordinate = Stack[--StackSize];
+        StackMemory.Arena->Used -= sizeof(Coordinate);
+        u8 TileValue = State->Field[Coordinate.Y][Coordinate.X];
+        struct minesweeper_tile_state TileState = ExtractMinesweeperTileState(TileValue);
+        if (TileState.UserState != tile_user_state_Revealed)
+        {
+            State->Field[Coordinate.Y][Coordinate.X] = 0xC0 | (TileValue & 0x3F);
+            if (!TileState.NeighborCount)
+            {
+                *PushStruct(StackMemory.Arena, struct v2i, 0) = V2iPlusV2i(Coordinate, V2i(-1,-1));
+                *PushStruct(StackMemory.Arena, struct v2i, 0) = V2iPlusV2i(Coordinate, V2i(+0,-1));
+                *PushStruct(StackMemory.Arena, struct v2i, 0) = V2iPlusV2i(Coordinate, V2i(+1,-1));
+                *PushStruct(StackMemory.Arena, struct v2i, 0) = V2iPlusV2i(Coordinate, V2i(-1,+0));
+                *PushStruct(StackMemory.Arena, struct v2i, 0) = V2iPlusV2i(Coordinate, V2i(+1,+0));
+                *PushStruct(StackMemory.Arena, struct v2i, 0) = V2iPlusV2i(Coordinate, V2i(-1,+1));
+                *PushStruct(StackMemory.Arena, struct v2i, 0) = V2iPlusV2i(Coordinate, V2i(+0,+1));
+                *PushStruct(StackMemory.Arena, struct v2i, 0) = V2iPlusV2i(Coordinate, V2i(+1,+1));
+                StackSize += 8;
+            }
+        }
+    }
+
+    EndTemporaryMemory(StackMemory);
+}
+
+void
+Reset(struct game_input *Input, struct game_state *State)
+{
+    State->GameStart = Input->ElapsedSeconds;
     State->GameplayState = minesweeper_gameplay_state_Playing;
     State->FieldDimensions = State->DesiredFieldDimensions;
     SetMemory(State->Field, 0, sizeof(State->Field));
@@ -557,6 +586,7 @@ Reset(struct game_state *State)
     }
     Assert(CoordinateCount == State->FieldDimensions.X * State->FieldDimensions.Y);
 
+    State->FlagsRemaining = State->DesiredMineCount;
     s32 MinesRemaining = State->DesiredMineCount;
 
     while (MinesRemaining--)
@@ -585,10 +615,62 @@ Reset(struct game_state *State)
     }
 }
 
+struct rect2i DrawTile(struct backbuffer *Backbuffer, s32 Stride, s32 Width, s32 BorderWidth, struct v2i Position, struct game_state *GameState, struct minesweeper_tile_state State, struct v2i Coordinate)
+{
+    struct rect2i Result = {Position, {Width + BorderWidth + BorderWidth, Width + BorderWidth + BorderWidth}};
+    struct v4 GrayVector = {(float)Gray/255.0f, (float)Gray/255.0f, (float)Gray/255.0f, 1.0f};
+    s32 ShowMine = State.IsMine && GameState->GameplayState == minesweeper_gameplay_state_GameOver;
+    if (State.IsDepressed || State.UserState == tile_user_state_Revealed || ShowMine)
+    {
+        struct rect2i Rectangle;
+        Rectangle.Dimensions.Width = Rectangle.Dimensions.Height = Result.Dimensions.Width - 2;
+        Rectangle.Position.X = Position.X + 1;
+        Rectangle.Position.Y = Position.Y + 1;
+        DrawBorder(Backbuffer, Stride, Rectangle.Dimensions, 1, Position, DarkGray, DarkGray, DarkGray);
+        Rectangle.Dimensions.Width = Rectangle.Dimensions.Height = Rectangle.Dimensions.Width + 1;
+        struct v4 BackgroundColor = GrayVector;
+        if (ShowMine && V2iEquals(Coordinate, GameState->TriggeredCoordinate))
+        {
+            BackgroundColor = V4(1, 0, 0, 1);
+        }
+        DrawRectangle(Backbuffer, Stride, Rectangle, BackgroundColor, draw_flags_None);
+        if (ShowMine)
+        {
+            DrawBitmap(Backbuffer, Stride, Position, MineBitmap);
+        }
+        else if (State.UserState == tile_user_state_Revealed)
+        {
+            DrawBitmap(Backbuffer, Stride, Position, NeighborNumberBitmaps[State.NeighborCount]);
+        }
+    }
+    else
+    {
+        struct rect2i Rectangle;
+        Rectangle.Dimensions.Width = Rectangle.Dimensions.Height = Width;
+        Rectangle.Position.X = Position.X + BorderWidth;
+        Rectangle.Position.Y = Position.Y + BorderWidth;
+        DrawBorder(Backbuffer, Stride, Rectangle.Dimensions, BorderWidth, Position, White, Gray, DarkGray);
+        DrawRectangle(Backbuffer, Stride, Rectangle, GrayVector, draw_flags_None);
+        if (State.UserState == tile_user_state_Flagged)
+        {
+            DrawBitmap(Backbuffer, Stride, Rectangle.Position, FlagBitmap);
+        }
+        else if (State.UserState == tile_user_state_QuestionMarked)
+        {
+            DrawBitmap(Backbuffer, Stride, Rectangle.Position, QuestionMarkBitmap);
+        }
+    }
+
+    return Result;
+}
+
 void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *AssetsMemory, size_t GameMemorySize, u8 *GameMemory)
 {
     struct game_input *GameInput = (struct game_input*)GameMemory;
     struct game_state *GameState = (struct game_state*)(GameInput + 1);
+    u8 *ScratchMemory = (u8*)(GameState + 1);
+    struct memory_arena ScratchArena;
+    InitializeArena(&ScratchArena, GameMemorySize - (ScratchMemory - GameMemory), ScratchMemory);
     float ElapsedSeconds = GameInput->ElapsedSeconds;
 
     struct v2i MousePosition = GameInput->MousePosition;
@@ -598,6 +680,9 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
 
     s32 RightMouseEndedDown = GameInput->RightMouseButton.EndedDown;
     s32 RightMouseHalfTransitionCount = GameInput->RightMouseButton.HalfTransitionCount;
+
+    s32 LeftReleaseCount = (LeftMouseHalfTransitionCount + !LeftMouseEndedDown) / 2;
+    s32 RightReleaseCount = (RightMouseHalfTransitionCount + !RightMouseEndedDown) / 2;
 
     struct backbuffer _Backbuffer;
     _Backbuffer.Dimensions.Width = Width;
@@ -620,11 +705,9 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
         GameState->MineSeed = Seed(GameInput->SeedValue);
         GameState->WindowPosition.X = 100;
         GameState->WindowPosition.Y = 100;
-        GameState->FlagsRemaining = 10;
-        GameState->GameStart = ElapsedSeconds;
         GameState->DesiredFieldDimensions = Beginner;
         GameState->DesiredMineCount = 10;
-        Reset(GameState);
+        Reset(GameInput, GameState);
     }
 
     if (GameState->DragTarget)
@@ -755,8 +838,7 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
     ScorePosition.X += Indent;
     ScorePosition.Y += Indent;
     DrawRectangle(Backbuffer, DestStride, Rect2i(ScorePosition, ScoreDimensions), ScoreBackgroundColor, draw_flags_None);
-    s32 GameTimer = (s32)(ElapsedSeconds - GameState->GameStart);
-    DrawNumber(Backbuffer, ScorePosition, GameState->FlagsRemaining);
+    DrawSevenSegment(Backbuffer, ScorePosition, GameState->FlagsRemaining);
 
     s32 SmileyBorderWidthOuter = 1;
     s32 SmileyBorderWidthInner = 2;
@@ -767,23 +849,41 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
     Indent = DrawBorder(Backbuffer, DestStride, SmileyDimensionsOuter, SmileyBorderWidthOuter, ScorePosition, DarkGray, Gray, DarkGray);
     ScorePosition.X += Indent;
     ScorePosition.Y += Indent;
-    Indent = DrawBorder(Backbuffer, DestStride, SmileyDimensionsInner, SmileyBorderWidthInner, ScorePosition, White, Gray, DarkGray);
-    struct v2i SmileyPosition = V2i(ScorePosition.X + Indent + 2, ScorePosition.Y + Indent + 2);
+    struct rect2i SmileyHitbox = {ScorePosition, SmileyDimensionsOuter};
+    struct v2i SmileyPosition = V2iPlusV2i(ScorePosition, V2i(4, 4));
+    s32 SmileyColorTopLeft = White;
+    s32 SmileyColorMid = Gray;
+    s32 SmileyColorBottomRight = DarkGray;
+    if (RectangleContains(SmileyHitbox, MousePosition))
+    {
+        if (LeftMouseEndedDown)
+        {
+            SmileyDimensionsInner = V2iPlusV2i(SmileyDimensionsInner, V2i(2, 2));
+            SmileyBorderWidthInner = 1;
+            SmileyColorTopLeft = DarkGray;
+            SmileyColorMid = DarkGray;
+            SmileyColorBottomRight = Gray;
+            SmileyPosition = V2iPlusV2i(ScorePosition, V2i(5, 5));
+        }
+        if (LeftReleaseCount)
+        {
+            Reset(GameInput, GameState);
+        }
+    }
+    DrawBorder(Backbuffer, DestStride, SmileyDimensionsInner, SmileyBorderWidthInner, ScorePosition, SmileyColorTopLeft, SmileyColorMid, SmileyColorBottomRight);
 
     ScorePosition = V2i(ScoreOrigin.X + ScoreBackgroundWidth - 5 - 1 - ScoreDimensions.Width, ScoreOrigin.Y + 4);
     Indent = DrawBorder(Backbuffer, DestStride, ScoreDimensions, 1, ScorePosition, DarkGray, Gray, White);
     ScorePosition.X += Indent;
     ScorePosition.Y += Indent;
     DrawRectangle(Backbuffer, DestStride, Rect2i(ScorePosition, ScoreDimensions), ScoreBackgroundColor, draw_flags_None);
-    DrawNumber(Backbuffer, ScorePosition, GameTimer);
+    struct v2i TimerPosition = ScorePosition;
     Position.Y += 33 + 4 + 6;
     Indent = DrawBorder(Backbuffer, DestStride, V2i(SquareWidth * FieldDimensions.Width, SquareWidth * FieldDimensions.Height), 3, Position, DarkGray, Gray, White);
     Position.X += Indent;
     Position.Y += Indent;
 
-    s32 LeftReleaseCount = (LeftMouseHalfTransitionCount + !LeftMouseEndedDown) / 2;
-    s32 RightReleaseCount = (RightMouseHalfTransitionCount + !RightMouseEndedDown) / 2;
-
+    s32 TilesRemaining = 0;
     enum smiley_state SmileyState = smiley_state_Normal;
     for (s32 j = 0; j < FieldDimensions.Height; ++j) {
         for (s32 i = 0; i < FieldDimensions.Width; ++i) {
@@ -793,7 +893,7 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
             struct v2i TilePosition = {Position.X + i * SquareWidth, Position.Y + j * SquareWidth};
             struct rect2i TileRectangle = {TilePosition, {innerWidth + borderWidth + borderWidth, innerWidth + borderWidth + borderWidth}};
             s32 Hover = RectangleContains(TileRectangle, MousePosition);
-            if (TileState.UserState != tile_user_state_Revealed && Hover)
+            if (GameState->GameplayState == minesweeper_gameplay_state_Playing && TileState.UserState != tile_user_state_Revealed && Hover)
             {
                 if (LeftReleaseCount)
                 {
@@ -802,12 +902,14 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
                     }
                     else if (TileState.IsMine)
                     {
+                        GameState->TriggeredCoordinate = FieldCoordinate;
+                        GameState->GameEnd = ElapsedSeconds;
                         GameState->GameplayState = minesweeper_gameplay_state_GameOver;
                     }
                     else
                     {
                         TileState.UserState = tile_user_state_Revealed;
-//                        FloodFill(State, &TranState->Arena, FieldCoordinate);
+                        FloodFill(GameState, &ScratchArena, FieldCoordinate);
                     }
                 }
 
@@ -819,14 +921,7 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
                     {
                         if (TileState.UserState == tile_user_state_Flagged)
                         {
-                            if (GameState->FlagsRemaining <= 0)
-                            {
-                                TileState.UserState = tile_user_state_QuestionMarked;
-                            }
-                            else
-                            {
-                                GameState->FlagsRemaining--;
-                            }
+                            GameState->FlagsRemaining--;
                         }
                         else if (OldUserState == tile_user_state_Flagged)
                         {
@@ -841,10 +936,37 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
                 }
             }
             GameState->Field[FieldCoordinate.Y][FieldCoordinate.X] = CompressMinesweeperTileState(TileState);
+            TilesRemaining += TileState.UserState != tile_user_state_Revealed;
+            TilesRemaining -= TileState.IsMine;
 
-            DrawTile(Backbuffer, DestStride, innerWidth, borderWidth, TilePosition, TileState);
+            DrawTile(Backbuffer, DestStride, innerWidth, borderWidth, TilePosition, GameState, TileState, FieldCoordinate);
         }
     }
+    if (GameState->GameplayState == minesweeper_gameplay_state_Playing && !TilesRemaining)
+    {
+        GameState->GameEnd = ElapsedSeconds;
+        GameState->GameplayState = minesweeper_gameplay_state_Victorious;
+    }
+
+    float TimerEnd = ElapsedSeconds;
+    switch (GameState->GameplayState)
+    {
+        case minesweeper_gameplay_state_Victorious:
+        {
+            SmileyState = smiley_state_Cool;
+            TimerEnd = GameState->GameEnd;
+        } break;
+        case minesweeper_gameplay_state_GameOver:
+        {
+            SmileyState = smiley_state_Frowney;
+            TimerEnd = GameState->GameEnd;
+        } break;
+        default:
+        {
+        } break;
+    }
+    s32 GameTimer = (s32)(TimerEnd - GameState->GameStart);
+    DrawSevenSegment(Backbuffer, TimerPosition, GameTimer);
     DrawSmiley(Backbuffer, SmileyPosition, SmileyState);
 #endif
 }
