@@ -94,6 +94,7 @@ struct v2i V2i(s32 X, s32 Y)
 }
 
 #include "bitmaps.h"
+#include "font.h"
 
 struct v4
 {
@@ -133,6 +134,7 @@ V2iEquals(struct v2i A, struct v2i B)
 struct backbuffer
 {
     struct v2i Dimensions;
+    s32 Stride;
     u8 *Memory;
 };
 
@@ -219,7 +221,7 @@ enum draw_flags
     draw_flags_Measure = 1 << 0,
 };
 
-struct rect2i DrawRectangle(struct backbuffer *Backbuffer, s32 Stride, struct rect2i Rectangle, struct v4 Color, enum draw_flags Flags)
+struct rect2i DrawRectangle(struct backbuffer *Backbuffer, struct rect2i Rectangle, struct v4 Color, enum draw_flags Flags)
 {
     struct v2i Dimensions = Rectangle.Dimensions;
     struct v2i Position = Rectangle.Position;
@@ -230,7 +232,7 @@ struct rect2i DrawRectangle(struct backbuffer *Backbuffer, s32 Stride, struct re
     struct rect2i Result = {Position, V2i(StopX - Position.X, StopY - Position.Y)};
     if (!(Flags & draw_flags_Measure))
     {
-        u8 *Row = Backbuffer->Memory + Stride * StartY + StartX * 4;
+        u8 *Row = Backbuffer->Memory + Backbuffer->Stride * StartY + StartX * 4;
         u32 PackedColor = 
             ((u8)(255.0f * Clamp(0.0f, Color.Red,   1.0f)) << 0)
             | ((u8)(255.0f * Clamp(0.0f, Color.Green, 1.0f)) << 8)
@@ -244,14 +246,14 @@ struct rect2i DrawRectangle(struct backbuffer *Backbuffer, s32 Stride, struct re
             {
                 *At++ = PackedColor;
             }
-            Row += Stride;
+            Row += Backbuffer->Stride;
         }
     }
     
     return Result;
 }
 
-s32 DrawBorder(struct backbuffer *Backbuffer, s32 Stride, struct v2i Dimensions, s32 BorderWidth, struct v2i Position, s32 colorTopLeft, s32 colorCenter, s32 colorBottomRight)
+s32 DrawBorder(struct backbuffer *Backbuffer, struct v2i Dimensions, s32 BorderWidth, struct v2i Position, s32 colorTopLeft, s32 colorCenter, s32 colorBottomRight)
 {
     s32 FullWidth = Dimensions.Width + 2*BorderWidth;
     s32 FullHeight = Dimensions.Height + 2*BorderWidth;
@@ -263,7 +265,7 @@ s32 DrawBorder(struct backbuffer *Backbuffer, s32 Stride, struct v2i Dimensions,
     s32 StopY = Min(Position.Y + (s32)FullHeight, (s32)Backbuffer->Dimensions.Height);
     s32 StopLeftX = Min(Position.X + (s32)BorderWidth, (s32)Backbuffer->Dimensions.Width);
     s32 StartRightX = Max((s32)0, Position.X + BorderWidth + Dimensions.Width);
-    u8 *Row = Backbuffer->Memory + Stride * StartY + StartX * 4;
+    u8 *Row = Backbuffer->Memory + Backbuffer->Stride * StartY + StartX * 4;
     for (s32 IndexY = StartY; IndexY < StopTopY; IndexY++) {
         u8 *At = Row;
         s32 IndexX;
@@ -288,7 +290,7 @@ s32 DrawBorder(struct backbuffer *Backbuffer, s32 Stride, struct v2i Dimensions,
             *At++ = colorBottomRight;
             *At++ = 255;
         }
-        Row += Stride;
+        Row += Backbuffer->Stride;
     }
     for (s32 IndexY = Max(0, Position.Y + BorderWidth); IndexY < StopMidY; IndexY++) {
         u8 *At = Row;
@@ -299,14 +301,14 @@ s32 DrawBorder(struct backbuffer *Backbuffer, s32 Stride, struct v2i Dimensions,
             *At++ = colorTopLeft;
             *At++ = 255;
         }
-        At = Backbuffer->Memory + Stride * IndexY + StartRightX * 4;
+        At = Backbuffer->Memory + Backbuffer->Stride * IndexY + StartRightX * 4;
         for (IndexX = StartRightX; IndexX < StopX; IndexX++) {
             *At++ = colorBottomRight;
             *At++ = colorBottomRight;
             *At++ = colorBottomRight;
             *At++ = 255;
         }
-        Row += Stride;
+        Row += Backbuffer->Stride;
     }
     StartY = Max(0, Position.Y + BorderWidth + Dimensions.Height);
     for (s32 IndexY = StartY; IndexY < StopY; IndexY++) {
@@ -333,19 +335,19 @@ s32 DrawBorder(struct backbuffer *Backbuffer, s32 Stride, struct v2i Dimensions,
             *At++ = colorBottomRight;
             *At++ = 255;
         }
-        Row += Stride;
+        Row += Backbuffer->Stride;
     }
     return BorderWidth;
 }
 
-void DrawBitmap(struct backbuffer *Backbuffer, s32 Stride, struct v2i Position, struct bitmap Bitmap)
+void DrawBitmap(struct backbuffer *Backbuffer, struct v2i Position, struct bitmap Bitmap)
 {
     char *SourceRow = Bitmap.Bitmap;
     s32 StartY = Max(0, Position.Y);
     s32 StartX = Max(0, Position.X);
     s32 StopY = Min(Position.Y + Bitmap.Dimensions.Height, Backbuffer->Dimensions.Height);
     s32 StopX = Min(Position.X + Bitmap.Dimensions.Width, Backbuffer->Dimensions.Width);
-    u8 *DestRow = Backbuffer->Memory + StartY * Stride + StartX * 4;
+    u8 *DestRow = Backbuffer->Memory + StartY * Backbuffer->Stride + StartX * 4;
     SourceRow += (StartY - Position.Y) * Bitmap.Dimensions.Width + StartX - Position.X;
     for (s32 IndexY = StartY; IndexY < StopY; IndexY++)
     {
@@ -365,9 +367,77 @@ void DrawBitmap(struct backbuffer *Backbuffer, s32 Stride, struct v2i Position, 
             }
             Dest++;
         }
-        DestRow += Stride;
+        DestRow += Backbuffer->Stride;
         SourceRow += Bitmap.Dimensions.Width;
     }
+}
+
+struct layout
+{
+    s32 DefaultKerning;
+    struct v2i Position;
+    struct font Font;
+    struct v4 Color;
+};
+
+u32 V4ToU32(struct v4 Color)
+{
+    u32 Result = 
+        ((u8)(255.0f * Clamp(0.0f, Color.Red,   1.0f)) << 0)
+        | ((u8)(255.0f * Clamp(0.0f, Color.Green, 1.0f)) << 8)
+        | ((u8)(255.0f * Clamp(0.0f, Color.Blue,  1.0f)) << 16)
+        | ((u8)(255.0f * Clamp(0.0f, Color.Alpha, 1.0f)) << 24);
+    return Result;
+}
+
+enum text_flags
+{
+    text_flags_None = 0,
+    text_flags_Underline = 1 << 0,
+};
+
+struct string_reference
+{
+    s32 Length;
+    char *String;
+};
+
+struct rect2i
+DrawText(struct backbuffer *Backbuffer, struct layout *Layout, struct string_reference Text, enum text_flags Flags)
+{
+    struct rect2i Result = { Layout->Position, {0, 0} };
+    u32 Colors[2];
+    Colors[0] = 0;
+    Colors[1] = V4ToU32(Layout->Color);
+    char *At = Text.String;
+    s32 Remaining = Text.Length;
+    while (Remaining--)
+    {
+        struct bitmap Bitmap = GetGlyph(Layout->Font, *At++);
+        Bitmap.ColorCount = ArrayCount(Colors);
+        Bitmap.Colors = Colors;
+        if (Backbuffer)
+        {
+            DrawBitmap(Backbuffer, Layout->Position, Bitmap);
+            Layout->Position.X += Bitmap.Dimensions.Width + Layout->DefaultKerning;
+        }
+        Result.Dimensions.Width += Bitmap.Dimensions.Width;
+        Result.Dimensions.Height = Max(Result.Dimensions.Height, Bitmap.Dimensions.Height);
+    }
+
+    if (Flags & text_flags_Underline)
+    {
+        if (Backbuffer)
+        {
+            struct rect2i Rectangle = Result;
+            Rectangle.Dimensions.Height = 1;
+            Rectangle.Position.Y += Result.Dimensions.Height + 1;
+            DrawRectangle(Backbuffer, Rectangle, Layout->Color, 0);
+        }
+        Result.Dimensions.Height += 2;
+    }
+    
+    return Result;
 }
 
 enum smiley_state
@@ -380,7 +450,6 @@ enum smiley_state
 
 void DrawSmiley(struct backbuffer *Backbuffer, struct v2i Position, enum smiley_state State)
 {
-    s32 Stride = Backbuffer->Dimensions.Width * 4;
     struct bitmap Bitmap;
     switch (State)
     {
@@ -402,13 +471,11 @@ void DrawSmiley(struct backbuffer *Backbuffer, struct v2i Position, enum smiley_
         Bitmap = SmileyBitmap;
     } break;
     }
-    DrawBitmap(Backbuffer, Stride, Position, Bitmap);
+    DrawBitmap(Backbuffer, Position, Bitmap);
 }
 
 void DrawSevenSegment(struct backbuffer *Backbuffer, struct v2i Position, s32 Number)
 {
-    s32 Stride = Backbuffer->Dimensions.Width * 4;
-    
     Number = Clamp(-99, Number, 999);
     s32 RemainingDigits = 3;
     struct bitmap Bitmaps[3];
@@ -435,7 +502,7 @@ void DrawSevenSegment(struct backbuffer *Backbuffer, struct v2i Position, s32 Nu
     struct bitmap *Bitmap = Bitmaps;
     while (RemainingDigits--)
     {
-        DrawBitmap(Backbuffer, Stride, Position, *Bitmap);
+        DrawBitmap(Backbuffer, Position, *Bitmap);
         Position.X += Bitmap->Dimensions.X;
         Bitmap++;
     }
@@ -481,7 +548,8 @@ RandomIndex(struct seed *Seed, u32 Count)
 
 struct game_state
 {
-    u32 Initialized;
+    b32 Initialized;
+    b32 IsGameMenuOpen;
     enum minesweeper_gameplay_state GameplayState;
     float GameEnd;
     struct v2i TriggeredCoordinate;
@@ -501,6 +569,13 @@ struct v2i
 V2iPlusV2i(struct v2i A, struct v2i B)
 {
     struct v2i Result = {A.X + B.X, A.Y + B.Y};
+    return Result;
+}
+
+struct v2i
+S32TimesV2i(s32 Scale, struct v2i A)
+{
+    struct v2i Result = {Scale * A.X, Scale * A.Y};
     return Result;
 }
 
@@ -615,7 +690,7 @@ Reset(struct game_input *Input, struct game_state *State)
     }
 }
 
-struct rect2i DrawTile(struct backbuffer *Backbuffer, s32 Stride, s32 Width, s32 BorderWidth, struct v2i Position, struct game_state *GameState, struct minesweeper_tile_state State, struct v2i Coordinate)
+struct rect2i DrawTile(struct backbuffer *Backbuffer, s32 Width, s32 BorderWidth, struct v2i Position, struct game_state *GameState, struct minesweeper_tile_state State, struct v2i Coordinate)
 {
     struct rect2i Result = {Position, {Width + BorderWidth + BorderWidth, Width + BorderWidth + BorderWidth}};
     struct v4 GrayVector = {(float)Gray/255.0f, (float)Gray/255.0f, (float)Gray/255.0f, 1.0f};
@@ -626,21 +701,21 @@ struct rect2i DrawTile(struct backbuffer *Backbuffer, s32 Stride, s32 Width, s32
         Rectangle.Dimensions.Width = Rectangle.Dimensions.Height = Result.Dimensions.Width - 2;
         Rectangle.Position.X = Position.X + 1;
         Rectangle.Position.Y = Position.Y + 1;
-        DrawBorder(Backbuffer, Stride, Rectangle.Dimensions, 1, Position, DarkGray, DarkGray, DarkGray);
+        DrawBorder(Backbuffer, Rectangle.Dimensions, 1, Position, DarkGray, DarkGray, DarkGray);
         Rectangle.Dimensions.Width = Rectangle.Dimensions.Height = Rectangle.Dimensions.Width + 1;
         struct v4 BackgroundColor = GrayVector;
         if (ShowMine && V2iEquals(Coordinate, GameState->TriggeredCoordinate))
         {
             BackgroundColor = V4(1, 0, 0, 1);
         }
-        DrawRectangle(Backbuffer, Stride, Rectangle, BackgroundColor, draw_flags_None);
+        DrawRectangle(Backbuffer, Rectangle, BackgroundColor, draw_flags_None);
         if (ShowMine)
         {
-            DrawBitmap(Backbuffer, Stride, Position, MineBitmap);
+            DrawBitmap(Backbuffer, Position, MineBitmap);
         }
         else if (State.UserState == tile_user_state_Revealed)
         {
-            DrawBitmap(Backbuffer, Stride, Position, NeighborNumberBitmaps[State.NeighborCount]);
+            DrawBitmap(Backbuffer, Position, NeighborNumberBitmaps[State.NeighborCount]);
         }
     }
     else
@@ -649,20 +724,63 @@ struct rect2i DrawTile(struct backbuffer *Backbuffer, s32 Stride, s32 Width, s32
         Rectangle.Dimensions.Width = Rectangle.Dimensions.Height = Width;
         Rectangle.Position.X = Position.X + BorderWidth;
         Rectangle.Position.Y = Position.Y + BorderWidth;
-        DrawBorder(Backbuffer, Stride, Rectangle.Dimensions, BorderWidth, Position, White, Gray, DarkGray);
-        DrawRectangle(Backbuffer, Stride, Rectangle, GrayVector, draw_flags_None);
+        DrawBorder(Backbuffer, Rectangle.Dimensions, BorderWidth, Position, White, Gray, DarkGray);
+        DrawRectangle(Backbuffer, Rectangle, GrayVector, draw_flags_None);
         if (State.UserState == tile_user_state_Flagged)
         {
-            DrawBitmap(Backbuffer, Stride, Rectangle.Position, FlagBitmap);
+            DrawBitmap(Backbuffer, Rectangle.Position, FlagBitmap);
         }
         else if (State.UserState == tile_user_state_QuestionMarked)
         {
-            DrawBitmap(Backbuffer, Stride, Rectangle.Position, QuestionMarkBitmap);
+            DrawBitmap(Backbuffer, Rectangle.Position, QuestionMarkBitmap);
         }
     }
 
     return Result;
 }
+
+enum menu_item_type
+{
+    menu_item_type_New,
+    menu_item_type_Separator,
+    menu_item_type_Beginner,
+    menu_item_type_Intermediate,
+    menu_item_type_Expert,
+    menu_item_type_Custom,
+};
+
+s32 StringLength(char *String)
+{
+    s32 Result = 0;
+    while (*String++)
+    {
+        Result++;
+    }
+    return Result;
+}
+
+struct string_reference StringReference(char *String)
+{
+    struct string_reference Result = {StringLength(String), String};
+    return Result;
+}
+
+struct string_reference Substring(struct string_reference Ref, s32 Start, s32 Length)
+{
+    if (Length < 0)
+    {
+        Length = Ref.Length - Start;
+    }
+    struct string_reference Result = {Length, Ref.String + Start};
+    return Result;
+}
+
+struct menu_item
+{
+    enum menu_item_type Type;
+    struct string_reference Name;
+    s32 ShortcutCharIndex;
+};
 
 void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *AssetsMemory, size_t GameMemorySize, u8 *GameMemory)
 {
@@ -681,31 +799,26 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
     s32 RightMouseEndedDown = GameInput->RightMouseButton.EndedDown;
     s32 RightMouseHalfTransitionCount = GameInput->RightMouseButton.HalfTransitionCount;
 
+    s32 LeftPressCount = (LeftMouseHalfTransitionCount + !!LeftMouseEndedDown) / 2;
     s32 LeftReleaseCount = (LeftMouseHalfTransitionCount + !LeftMouseEndedDown) / 2;
+    s32 RightPressCount = (RightMouseHalfTransitionCount + !!RightMouseEndedDown) / 2;
     s32 RightReleaseCount = (RightMouseHalfTransitionCount + !RightMouseEndedDown) / 2;
 
     struct backbuffer _Backbuffer;
     _Backbuffer.Dimensions.Width = Width;
     _Backbuffer.Dimensions.Height = Height;
     _Backbuffer.Memory = BackbufferMemory;
+    _Backbuffer.Stride = Width*4;
     struct backbuffer *Backbuffer = &_Backbuffer;
-
-    struct v2i Beginner = {9,9};
-    struct v2i Intermediate = {16,16};
-    struct v2i Expert = {30,16};
-    struct v2i BoardDimensionsOptions[] = {
-        Beginner,
-        Intermediate,
-        Expert,
-    };
 
     if (!GameState->Initialized)
     {
+        InitializeSystemFont();
         GameState->Initialized = 1;
         GameState->MineSeed = Seed(GameInput->SeedValue);
         GameState->WindowPosition.X = 100;
         GameState->WindowPosition.Y = 100;
-        GameState->DesiredFieldDimensions = Beginner;
+        GameState->DesiredFieldDimensions = V2i(9, 9);
         GameState->DesiredMineCount = 10;
         Reset(GameInput, GameState);
     }
@@ -724,7 +837,6 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
     }
     
     struct image_header *Header = (struct image_header *)AssetsMemory;
-    s32 DestStride = Width*4;
 
     float VMultiplier = 1.0f / (float)Height;
     float UMultiplier = 1.0f / (float)Width;
@@ -771,12 +883,12 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
 #endif
                 *Dest++ = 0xFF;
             }
-            DestRow += DestStride;
+            DestRow += Backbuffer->Stride;
         }
     }
     else
     {
-        DrawRectangle(Backbuffer, DestStride, ScreenRectangle, BackgroundColor, draw_flags_None);
+        DrawRectangle(Backbuffer, ScreenRectangle, BackgroundColor, draw_flags_None);
     }
     
     
@@ -792,10 +904,10 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
     TitleBarRectangle.Position = Position;
     struct rect2i SeparatorRectangle;
     SeparatorRectangle.Dimensions = V2i(TitleBarRectangle.Dimensions.Width, 1);
-    struct v4 TitleBarColor = { 0.0f, 0.0f, 1.0f, 1.0f };
+    struct v4 TitleBarColor = { 0.0f, 0.0f, 0.5f, 1.0f };
     struct v4 SeparatorColor = {0, 0, 0, 1};
     struct v4 MenuBarColor = {1, 1, 1, 1};
-    s32 Indent = DrawBorder(Backbuffer, DestStride, V2i(GameBackgroundDimensions.Width + 6, GameBackgroundDimensions.Height + 6 + TitleBarRectangle.Dimensions.Height * 2 + SeparatorRectangle.Dimensions.Height * 2), 1, Position, Black, Black, Black);
+    s32 Indent = DrawBorder(Backbuffer, V2i(GameBackgroundDimensions.Width + 6, GameBackgroundDimensions.Height + 6 + TitleBarRectangle.Dimensions.Height * 2 + SeparatorRectangle.Dimensions.Height * 2), 1, Position, Black, Black, Black);
 #if 1
     Position.X += Indent;
     Position.Y += Indent;
@@ -809,35 +921,85 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
             GameState->DragTarget = &GameState->WindowPosition;
         }
     }
-    DrawRectangle(Backbuffer, DestStride, TitleBarRectangle, TitleBarColor, draw_flags_None);
+    DrawRectangle(Backbuffer, TitleBarRectangle, TitleBarColor, draw_flags_None);
+
+    struct string_reference TitleText = StringReference("Minesweeper");
+    struct layout Layout;
+    Layout.DefaultKerning = 0;
+    Layout.Color = V4(1, 1, 1, 1);
+    Layout.Font = SystemFont;
+    struct rect2i TitleTextRectangle = DrawText(0, &Layout, TitleText, 0);
+    Layout.Position = Position;
+    Layout.Position.X += (TitleBarRectangle.Dimensions.Width - TitleTextRectangle.Dimensions.Width) / 2;
+    Layout.Position.Y += 4;
+    DrawText(Backbuffer, &Layout, TitleText, 0);
+
+    Position = TitleBarRectangle.Position;
     Position.Y += TitleBarRectangle.Dimensions.Height;
     SeparatorRectangle.Position = Position;
-    DrawRectangle(Backbuffer, DestStride, SeparatorRectangle, SeparatorColor, draw_flags_None);
+    DrawRectangle(Backbuffer, SeparatorRectangle, SeparatorColor, draw_flags_None);
     Position.Y += SeparatorRectangle.Dimensions.Height;
     TitleBarRectangle.Position = Position;
-    DrawRectangle(Backbuffer, DestStride, TitleBarRectangle, MenuBarColor, draw_flags_None);
+    DrawRectangle(Backbuffer, TitleBarRectangle, MenuBarColor, draw_flags_None);
+
+    struct string_reference GameText = StringReference("Game");
+    struct v2i MenuButtonPadding = {8, 3};
+    struct rect2i MenuButtonHitbox = DrawText(0, &Layout, GameText, text_flags_Underline);
+    MenuButtonHitbox.Position = Position;
+    MenuButtonHitbox.Dimensions = V2iPlusV2i(MenuButtonHitbox.Dimensions, S32TimesV2i(2, MenuButtonPadding));
+    if (RectangleContains(MenuButtonHitbox, MousePosition))
+    {
+        if (LeftReleaseCount & 1)
+        {
+            GameState->IsGameMenuOpen = !GameState->IsGameMenuOpen;
+            LeftPressCount = 0;
+            LeftReleaseCount = 0;
+        }
+    }
+    b32 IsGameFocused = !GameState->IsGameMenuOpen;
+    if (GameState->IsGameMenuOpen)
+    {
+        DrawRectangle(Backbuffer, MenuButtonHitbox, V4(0, 0, 0, 1), 0);
+        struct rect2i MenuButtonHighlight = MenuButtonHitbox;
+        MenuButtonHighlight.Position.X += 1;
+        MenuButtonHighlight.Position.Y += 1;
+        MenuButtonHighlight.Dimensions.Width -= 2;
+        MenuButtonHighlight.Dimensions.Height -= 2;
+        DrawRectangle(Backbuffer, MenuButtonHighlight, V4(0, 0, 0.5f, 1), 0);
+        Layout.Color = V4(1, 1, 1, 1);
+    }
+    else
+    {
+        Layout.Color = V4(0, 0, 0, 1);
+    }
+    Layout.Position = V2iPlusV2i(Position, MenuButtonPadding);
+    DrawText(Backbuffer, &Layout, Substring(GameText, 0, 1), text_flags_Underline);
+    DrawText(Backbuffer, &Layout, Substring(GameText, 1, 3), 0);
+
+    Position = TitleBarRectangle.Position;
     Position.Y += TitleBarRectangle.Dimensions.Height;
     SeparatorRectangle.Position = Position;
-    DrawRectangle(Backbuffer, DestStride, SeparatorRectangle, SeparatorColor, draw_flags_None);
+    DrawRectangle(Backbuffer, SeparatorRectangle, SeparatorColor, draw_flags_None);
     Position.Y += SeparatorRectangle.Dimensions.Height;
-    Indent = DrawBorder(Backbuffer, DestStride, V2i(GameBackgroundDimensions.Width, GameBackgroundDimensions.Height), 3, Position, White, Gray, DarkGray);
+
+    Indent = DrawBorder(Backbuffer, V2i(GameBackgroundDimensions.Width, GameBackgroundDimensions.Height), 3, Position, White, Gray, DarkGray);
     Position.X += Indent;
     Position.Y += Indent;
     struct rect2i GameBackgroundRectangle = {Position, GameBackgroundDimensions};
     struct v4 GrayVector = {(float)Gray/255.0f, (float)Gray/255.0f, (float)Gray/255.0f, 1.0f};
-    DrawRectangle(Backbuffer, DestStride, GameBackgroundRectangle, GrayVector, draw_flags_None);
+    DrawRectangle(Backbuffer, GameBackgroundRectangle, GrayVector, draw_flags_None);
     Position.X += 6;
     Position.Y += 6;
     s32 ScoreBackgroundWidth = GameBackgroundDimensions.Width - 16;
-    Indent = DrawBorder(Backbuffer, DestStride, V2i(ScoreBackgroundWidth, 33), 2, Position, DarkGray, Gray, White);
+    Indent = DrawBorder(Backbuffer, V2i(ScoreBackgroundWidth, 33), 2, Position, DarkGray, Gray, White);
     struct v2i ScoreOrigin = {Position.X + Indent, Position.Y + Indent};
     struct v2i ScorePosition = {ScoreOrigin.X + 5, ScoreOrigin.Y + 4};
     struct v2i ScoreDimensions = {39, 23};
     struct v4 ScoreBackgroundColor = {0,0,0,1};
-    Indent = DrawBorder(Backbuffer, DestStride, ScoreDimensions, 1, ScorePosition, DarkGray, Gray, White);
+    Indent = DrawBorder(Backbuffer, ScoreDimensions, 1, ScorePosition, DarkGray, Gray, White);
     ScorePosition.X += Indent;
     ScorePosition.Y += Indent;
-    DrawRectangle(Backbuffer, DestStride, Rect2i(ScorePosition, ScoreDimensions), ScoreBackgroundColor, draw_flags_None);
+    DrawRectangle(Backbuffer, Rect2i(ScorePosition, ScoreDimensions), ScoreBackgroundColor, draw_flags_None);
     DrawSevenSegment(Backbuffer, ScorePosition, GameState->FlagsRemaining);
 
     s32 SmileyBorderWidthOuter = 1;
@@ -846,7 +1008,7 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
     struct v2i SmileyDimensionsOuter = V2i(SmileyDimensionsInner.X + SmileyBorderWidthInner*2, SmileyDimensionsInner.Y + SmileyBorderWidthInner*2);
     s32 SmileyWidth = SmileyDimensionsOuter.X + SmileyBorderWidthOuter*2;
     ScorePosition = V2i(ScoreOrigin.X + (ScoreBackgroundWidth - SmileyWidth) / 2, ScoreOrigin.Y + 4);
-    Indent = DrawBorder(Backbuffer, DestStride, SmileyDimensionsOuter, SmileyBorderWidthOuter, ScorePosition, DarkGray, Gray, DarkGray);
+    Indent = DrawBorder(Backbuffer, SmileyDimensionsOuter, SmileyBorderWidthOuter, ScorePosition, DarkGray, Gray, DarkGray);
     ScorePosition.X += Indent;
     ScorePosition.Y += Indent;
     struct rect2i SmileyHitbox = {ScorePosition, SmileyDimensionsOuter};
@@ -854,7 +1016,7 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
     s32 SmileyColorTopLeft = White;
     s32 SmileyColorMid = Gray;
     s32 SmileyColorBottomRight = DarkGray;
-    if (RectangleContains(SmileyHitbox, MousePosition))
+    if (IsGameFocused && RectangleContains(SmileyHitbox, MousePosition))
     {
         if (LeftMouseEndedDown)
         {
@@ -870,16 +1032,16 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
             Reset(GameInput, GameState);
         }
     }
-    DrawBorder(Backbuffer, DestStride, SmileyDimensionsInner, SmileyBorderWidthInner, ScorePosition, SmileyColorTopLeft, SmileyColorMid, SmileyColorBottomRight);
+    DrawBorder(Backbuffer, SmileyDimensionsInner, SmileyBorderWidthInner, ScorePosition, SmileyColorTopLeft, SmileyColorMid, SmileyColorBottomRight);
 
     ScorePosition = V2i(ScoreOrigin.X + ScoreBackgroundWidth - 5 - 1 - ScoreDimensions.Width, ScoreOrigin.Y + 4);
-    Indent = DrawBorder(Backbuffer, DestStride, ScoreDimensions, 1, ScorePosition, DarkGray, Gray, White);
+    Indent = DrawBorder(Backbuffer, ScoreDimensions, 1, ScorePosition, DarkGray, Gray, White);
     ScorePosition.X += Indent;
     ScorePosition.Y += Indent;
-    DrawRectangle(Backbuffer, DestStride, Rect2i(ScorePosition, ScoreDimensions), ScoreBackgroundColor, draw_flags_None);
+    DrawRectangle(Backbuffer, Rect2i(ScorePosition, ScoreDimensions), ScoreBackgroundColor, draw_flags_None);
     struct v2i TimerPosition = ScorePosition;
     Position.Y += 33 + 4 + 6;
-    Indent = DrawBorder(Backbuffer, DestStride, V2i(SquareWidth * FieldDimensions.Width, SquareWidth * FieldDimensions.Height), 3, Position, DarkGray, Gray, White);
+    Indent = DrawBorder(Backbuffer, V2i(SquareWidth * FieldDimensions.Width, SquareWidth * FieldDimensions.Height), 3, Position, DarkGray, Gray, White);
     Position.X += Indent;
     Position.Y += Indent;
 
@@ -892,7 +1054,7 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
             struct minesweeper_tile_state TileState = ExtractMinesweeperTileState(TileValue);
             struct v2i TilePosition = {Position.X + i * SquareWidth, Position.Y + j * SquareWidth};
             struct rect2i TileRectangle = {TilePosition, {innerWidth + borderWidth + borderWidth, innerWidth + borderWidth + borderWidth}};
-            s32 Hover = RectangleContains(TileRectangle, MousePosition);
+            s32 Hover = IsGameFocused && RectangleContains(TileRectangle, MousePosition);
             if (GameState->GameplayState == minesweeper_gameplay_state_Playing && TileState.UserState != tile_user_state_Revealed && Hover)
             {
                 if (LeftReleaseCount)
@@ -939,7 +1101,7 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
             TilesRemaining += TileState.UserState != tile_user_state_Revealed;
             TilesRemaining -= TileState.IsMine;
 
-            DrawTile(Backbuffer, DestStride, innerWidth, borderWidth, TilePosition, GameState, TileState, FieldCoordinate);
+            DrawTile(Backbuffer, innerWidth, borderWidth, TilePosition, GameState, TileState, FieldCoordinate);
         }
     }
     if (GameState->GameplayState == minesweeper_gameplay_state_Playing && !TilesRemaining)
@@ -968,5 +1130,137 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
     s32 GameTimer = (s32)(TimerEnd - GameState->GameStart);
     DrawSevenSegment(Backbuffer, TimerPosition, GameTimer);
     DrawSmiley(Backbuffer, SmileyPosition, SmileyState);
+
+    if (GameState->IsGameMenuOpen)
+    {
+        s32 MenuItemVerticalPadding = 2;
+        struct v2i MenuItemDimensions = {16*8 + 10, Layout.Font.Ascent + Layout.Font.Descent + 2*MenuItemVerticalPadding};
+        struct rect2i DropdownRectangle = TitleBarRectangle;
+        DropdownRectangle.Position.Y += TitleBarRectangle.Dimensions.Height;
+        DropdownRectangle.Dimensions.Width = MenuItemDimensions.Width + 2;
+        DropdownRectangle.Dimensions.Height = 2;
+        struct menu_item MenuItems[] = {
+            { menu_item_type_New, StringReference("New") },
+            { menu_item_type_Separator },
+            { menu_item_type_Beginner, StringReference("Beginner") },
+            { menu_item_type_Intermediate, StringReference("Intermediate") },
+            { menu_item_type_Expert, StringReference("Expert") },
+#if 0
+            { menu_item_type_Custom, StringReference("Custom...") },
+#endif
+        };
+
+        s32 MenuItemCount = ArrayCount(MenuItems);
+        while (MenuItemCount--)
+        {
+            s32 MenuItemHeight = MenuItemDimensions.Height;
+            if (MenuItems[MenuItemCount].Type == menu_item_type_Separator)
+            {
+                MenuItemHeight = 1 + 2*MenuItemVerticalPadding;
+            }
+            DropdownRectangle.Dimensions.Height += MenuItemHeight;
+        }
+        
+        DrawRectangle(Backbuffer, DropdownRectangle, V4(0, 0, 0, 1), 0);
+        DropdownRectangle.Position.X += 1;
+        DropdownRectangle.Position.Y += 1;
+        DropdownRectangle.Dimensions.Width -= 2;
+        DropdownRectangle.Dimensions.Height -= 2;
+        DrawRectangle(Backbuffer, DropdownRectangle, V4(1, 1, 1, 1), 0);
+        struct rect2i MenuItemRectangle = DropdownRectangle;
+        MenuItemRectangle.Dimensions = MenuItemDimensions;
+
+        struct menu_item *MenuItem = MenuItems;
+        MenuItemCount = ArrayCount(MenuItems);
+        while (MenuItemCount--)
+        {
+            if (MenuItem->Type == menu_item_type_Separator)
+            {
+                struct rect2i SeparatorRectangle = MenuItemRectangle;
+                SeparatorRectangle.Position.Y += MenuItemVerticalPadding;
+                SeparatorRectangle.Dimensions.Height = 1;
+                DrawRectangle(Backbuffer, SeparatorRectangle, V4(0, 0, 0, 1), 0);
+                MenuItemRectangle.Position.Y += SeparatorRectangle.Dimensions.Height + MenuItemVerticalPadding*2;
+            }
+            else
+            {
+                if (RectangleContains(MenuItemRectangle, MousePosition))
+                {
+                    struct v4 MenuItemColor = V4(0, 0, 1, 1);
+                    if (LeftMouseEndedDown)
+                    {
+                        MenuItemColor.Blue *= 0.5f;
+                    }
+                    DrawRectangle(Backbuffer, MenuItemRectangle, MenuItemColor, 0);
+                    Layout.Color = V4(1, 1, 1, 1);
+
+                    if (LeftReleaseCount)
+                    {
+                        switch (MenuItem->Type)
+                        {
+                            case menu_item_type_New:
+                            {
+                                Reset(GameInput, GameState);
+                                GameState->IsGameMenuOpen = 0;
+                            } break;
+                            case menu_item_type_Beginner:
+                            {
+                                GameState->DesiredFieldDimensions.X = 9;
+                                GameState->DesiredFieldDimensions.Y = 9;
+                                GameState->DesiredMineCount = 10;
+                                Reset(GameInput, GameState);
+                                GameState->IsGameMenuOpen = 0;
+                            } break;
+                            case menu_item_type_Intermediate:
+                            {
+                                GameState->DesiredFieldDimensions.X = 16;
+                                GameState->DesiredFieldDimensions.Y = 16;
+                                GameState->DesiredMineCount = 40;
+                                Reset(GameInput, GameState);
+                                GameState->IsGameMenuOpen = 0;
+                            } break;
+                            case menu_item_type_Expert:
+                            {
+                                GameState->DesiredFieldDimensions.X = 30;
+                                GameState->DesiredFieldDimensions.Y = 16;
+                                GameState->DesiredMineCount = 99;
+                                Reset(GameInput, GameState);
+                                GameState->IsGameMenuOpen = 0;
+                            } break;
+                            case menu_item_type_Custom:
+                            {
+                            } break;
+                            default:
+                            {
+                            } break;
+                        }
+                    }
+                }
+                else
+                {
+                    Layout.Color = V4(0, 0, 0, 1);
+                }
+                Layout.Position = MenuItemRectangle.Position;
+                Layout.Position.Y += MenuItemVerticalPadding;
+                if (0 <= MenuItem->ShortcutCharIndex && MenuItem->ShortcutCharIndex < MenuItem->Name.Length)
+                {
+                    DrawText(Backbuffer, &Layout, Substring(MenuItem->Name, 0, MenuItem->ShortcutCharIndex), 0);
+                    DrawText(Backbuffer, &Layout, Substring(MenuItem->Name, MenuItem->ShortcutCharIndex, 1), text_flags_Underline);
+                    DrawText(Backbuffer, &Layout, Substring(MenuItem->Name, MenuItem->ShortcutCharIndex + 1, -1), 0);
+                }
+                else
+                {
+                    DrawText(Backbuffer, &Layout, MenuItem->Name, 0);
+                }
+                MenuItemRectangle.Position.Y += MenuItemDimensions.Height;
+            }
+            MenuItem++;
+        }
+
+        if (LeftReleaseCount && !RectangleContains(DropdownRectangle, MousePosition))
+        {
+            GameState->IsGameMenuOpen = 0;
+        }
+    }
 #endif
 }
