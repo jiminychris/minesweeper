@@ -550,6 +550,7 @@ struct game_state
 {
     b32 Initialized;
     b32 IsGameMenuOpen;
+    float MenuDebounce;
     enum minesweeper_gameplay_state GameplayState;
     float GameEnd;
     struct v2i TriggeredCoordinate;
@@ -949,11 +950,17 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
     MenuButtonHitbox.Dimensions = V2iPlusV2i(MenuButtonHitbox.Dimensions, S32TimesV2i(2, MenuButtonPadding));
     if (RectangleContains(MenuButtonHitbox, MousePosition))
     {
-        if (LeftReleaseCount & 1)
+        if (!GameState->IsGameMenuOpen)
         {
-            GameState->IsGameMenuOpen = !GameState->IsGameMenuOpen;
-            LeftPressCount = 0;
-            LeftReleaseCount = 0;
+            if (LeftPressCount)
+            {
+                GameState->MenuDebounce = GameInput->ElapsedSeconds + 0.5f;
+                GameState->IsGameMenuOpen = 1;
+            }
+        }
+        else if (LeftReleaseCount && GameState->MenuDebounce < GameInput->ElapsedSeconds)
+        {
+            GameState->IsGameMenuOpen = 0;
         }
     }
     b32 IsGameFocused = !GameState->IsGameMenuOpen;
@@ -1257,7 +1264,7 @@ void GameUpdateAndRender(s32 Width, s32 Height, u8 *BackbufferMemory, u8 *Assets
             MenuItem++;
         }
 
-        if (LeftReleaseCount && !RectangleContains(DropdownRectangle, MousePosition))
+        if (LeftMouseHalfTransitionCount && !RectangleContains(DropdownRectangle, MousePosition) && !RectangleContains(MenuButtonHitbox, MousePosition))
         {
             GameState->IsGameMenuOpen = 0;
         }
