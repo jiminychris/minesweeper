@@ -695,7 +695,7 @@ struct rect2i DrawTile(struct backbuffer *Backbuffer, s32 Width, s32 BorderWidth
 {
     struct rect2i Result = {Position, {Width + BorderWidth + BorderWidth, Width + BorderWidth + BorderWidth}};
     struct v4 GrayVector = {(float)Gray/255.0f, (float)Gray/255.0f, (float)Gray/255.0f, 1.0f};
-    s32 ShowMine = State.IsMine && GameState->GameplayState == minesweeper_gameplay_state_GameOver;
+    s32 ShowMine = State.IsMine && State.UserState != tile_user_state_Flagged && GameState->GameplayState == minesweeper_gameplay_state_GameOver;
     if (State.IsDepressed || State.UserState == tile_user_state_Revealed || ShowMine)
     {
         struct rect2i Rectangle;
